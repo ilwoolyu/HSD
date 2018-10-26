@@ -8,6 +8,11 @@ We present hierarchical spherical deformation for group-wise shape correspondenc
 * Parallel processing: this tool supports OpenMP and will perform the best efficiency with CUDA.
 * Memory: it requires about 0.5Gb per subject.
 ##
+### Installation
+You can download and compile the source code using <a href="https://cmake.org/">CMake</a>. Or you can pull <a href="https://hub.docker.com/r/ilwoolyu/cmorph/">docker image</a>:
+```
+docker pull ilwoolyu/cmorph:1.0
+```
 ### Usage
 #### Input
 * surface file (.vtk): triangular sphere mesh
@@ -18,7 +23,10 @@ We present hierarchical spherical deformation for group-wise shape correspondenc
 
 The following command line will generate "s?.sphere.reg.vtk":
 ```
-HSD -i s1.sphere.vtk,s2.sphere.vtk,s3.sphere.vtk -o s1.sphere.reg.vtk,s2.sphere.reg.vtk,s3.sphere.reg.vtk -p s1.curv.txt,s2.curv.txt,s3.curv.txt
+HSD \
+    -i s1.sphere.vtk,s2.sphere.vtk,s3.sphere.vtk \
+    -p s1.curv.txt,s2.curv.txt,s3.curv.txt \
+    -o s1.sphere.reg.vtk,s2.sphere.reg.vtk,s3.sphere.reg.vtk
 ```
 To change the degree of spherical harmonics:
 ```
@@ -35,6 +43,28 @@ HSD --tmpVar temp_var.txt
 See more options:
 ```
 HSD -h
+```
+In Docker, you need a sudo acces. To run, type:
+```
+sudo docker run \
+            -v <LOCAL_INPUT_PATH>:/INPUT/ \
+            -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
+            --rm ilwoolyu/cmorph:1.0 \
+            HSD \
+                -i /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
+                -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
+                -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
+```
+To utilize cublas, you need to install <a href="https://github.com/NVIDIA/nvidia-docker">NVIDIA Container Runtime for Docker</a>.
+```
+sudo nvidia-docker run \
+            -v <LOCAL_INPUT_PATH>:/INPUT/ \
+            -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
+            --rm ilwoolyu/cmorph:1.0 \
+            HSD-cuda \
+                -i /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
+                -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
+                -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
 ```
 Please refer to our papers [1] for technical details (theory, parameters, methodological validation, etc.).
 ##
