@@ -11,7 +11,7 @@ We present hierarchical spherical deformation for group-wise shape correspondenc
 ### Installation
 You can download and compile the source code using <a href="https://cmake.org/">CMake</a>. Or you can pull <a href="https://hub.docker.com/r/ilwoolyu/cmorph/">docker image</a>:
 ```
-docker pull ilwoolyu/cmorph:1.0
+$ docker pull ilwoolyu/cmorph:1.0
 ```
 ### Usage
 #### Input
@@ -21,58 +21,106 @@ docker pull ilwoolyu/cmorph:1.0
 #### Output
 * surface file (.vtk): triangular deformed sphere mesh
 
-The following command line will generate "s?.sphere.reg.vtk":
+#### Basic command
+This tools supports N many subjects in theory as long as memory capacity is allowed. Let's assume N=3 in this example.
+The following command line will generate `s?.sphere.reg.vtk`:
 ```
-HSD \
-    -i s1.sphere.vtk,s2.sphere.vtk,s3.sphere.vtk \
-    -p s1.curv.txt,s2.curv.txt,s3.curv.txt \
-    -o s1.sphere.reg.vtk,s2.sphere.reg.vtk,s3.sphere.reg.vtk
+$ HSD \
+      -i s1.sphere.vtk,s2.sphere.vtk,s3.sphere.vtk \
+      -p s1.curv.txt,s2.curv.txt,s3.curv.txt \
+      -o s1.sphere.reg.vtk,s2.sphere.reg.vtk,s3.sphere.reg.vtk
 ```
 To change the degree of spherical harmonics:
 ```
-HSD -d #
+$ HSD -d <# of degree>
 ```
-In case of pairwise registration, one of the subjects can be regarded as a template. The following command line set the first subject as a template and other subjects are registered to this.
+To change the level of icosahedron subdivision for feature map resampling:
 ```
-HSD --fixedSubjects 0
+$ HSD --icosahedron <level>
 ```
-The tool supports template (prior) variance for the pairwise registration.
+To report spherical harmonics coefficients:
 ```
-HSD --tmpVar temp_var.txt
+$ HSD --writecoeff s1.coeff.txt,s2.coeff.txt,s3.coeff.txt
+```
+and to use initial spherical harmonics coefficients:
+```
+$ HSD -c s1.coeff.txt,s2.coeff.txt,s3.coeff.txt
+```
+To enable multi-thread support (OpenMP):
+```
+$ HSD --nThreads <# of threads>
+```
+#### Multi-resolution approach
+If multi-feature maps are available, surface registration can be performed in a multi-resolution manner. Once again, we assume N=3 with the following features: {`s1.sulc.txt`, `s2.sulc.txt`, `s3.sulc.txt`} and {`s1.curv.txt`, `s2.curv.txt`, `s3.curv.txt`}. Let's register *sulc* maps first at low resolution `--icosahedron 5`:
+```
+$ HSD \
+      -i s1.sphere.vtk,s2.sphere.vtk,s3.sphere.vtk \
+      -p s1.sulc.txt,s2.sulc.txt,s3.sulc.txt \
+      -o s1.sphere.reg0.vtk,s2.sphere.reg0.vtk,s3.sphere.reg0.vtk \
+      --icosahedron 5
+```
+The multi-resolution approach is quite straightforward. We can feed the registration results to the next step by increasing the sampling level `--icosahedron 6`:
+```
+$ HSD \
+      -i s1.sphere.reg0.vtk,s2.sphere.reg0.vtk,s3.sphere.reg0.vtk \
+      -p s1.sulc.txt,s2.sulc.txt,s3.sulc.txt \
+      -o s1.sphere.reg1.vtk,s2.sphere.reg1.vtk,s3.sphere.reg1.vtk \
+      --icosahedron 6
+```
+Finally, we coregister all surfaces together using dense features:
+```
+$ HSD \
+      -i s1.sphere.reg1.vtk,s2.sphere.reg1.vtk,s3.sphere.reg1.vtk \
+      -p s1.curv.txt,s2.curv.txt,s3.curv.txt \
+      -o s1.sphere.reg.vtk,s2.sphere.reg.vtk,s3.sphere.reg.vtk \
+      --icosahedron 7
+```
+We can also create and use spherical harmonics coefficients for each resolution `s1.coff.txt`, `s2.coff.txt`, `s3.coff.txt` rather than create deformed spheres. This will save storage and time for file writing.
+
+#### Pairwise registration
+In case of pairwise registration, one of the subjects can be regarded as a template. 
+The following command line set the first subject as a template and other subjects are registered to this.
+```
+$ HSD --fixedSubjects <index #: 0|1>
+```
+Set 0 if the first subject serves as a template; 1 otherwise.
+This tool also supports template (prior) variance, if any, for the pairwise registration.
+```
+$ HSD --tmpVar temp_var.txt
 ```
 See more options:
 ```
-HSD -h
+$ HSD -h
 ```
 In Docker, you need a sudo acces. To run, type:
 ```
-sudo docker run \
-            -v <LOCAL_INPUT_PATH>:/INPUT/ \
-            -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
-            --rm ilwoolyu/cmorph:1.0 \
-            HSD \
-                -i /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
-                -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
-                -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
+$ docker run \
+         -v <LOCAL_INPUT_PATH>:/INPUT/ \
+         -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
+         --rm ilwoolyu/cmorph:1.0 \
+         HSD \
+             -i /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
+             -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
+             -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
 ```
 To utilize cublas, you need to install <a href="https://github.com/NVIDIA/nvidia-docker">NVIDIA Container Runtime for Docker</a>.
 ```
-sudo nvidia-docker run \
-            -v <LOCAL_INPUT_PATH>:/INPUT/ \
-            -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
-            --rm ilwoolyu/cmorph:1.0 \
-            HSD-cuda \
-                -i /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
-                -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
-                -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
+$ nvidia-docker run \
+         -v <LOCAL_INPUT_PATH>:/INPUT/ \
+         -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
+         --rm ilwoolyu/cmorph:1.0 \
+         HSD-cuda \
+             -i /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
+             -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
+             -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
 ```
-Please refer to our papers [1] for technical details (theory, parameters, methodological validation, etc.).
+Please refer to our papers [[1](#ref1)] for technical details (theory, parameters, methodological validation, etc.).
 ##
-### Requirements
-<a href="https://github.com/ilwoolyu/MeshLib">MeshLib (general mesh processing)</a>
+### Requirements for build
+<a href="https://github.com/ilwoolyu/MeshLib">MeshLib (general mesh processing)</a><br />
 <a href="https://github.com/Slicer/SlicerExecutionModel">SlicerExecutionModel (CLI)</a>
 
 ### References
 <ol>
-<li>Lyu, I., Styner, M., Landman, B., <a href="https://doi.org/10.1007/978-3-030-00928-1_96">Hierarchical Spherical Deformation for Shape Correspondence</a>, <i>Medical Image Computing and Computer Assisted Intervention (MICCAI) 2018</i>, LNCS11070, 853-861, 2018.</li>
+<li><a id="ref1"></a>Lyu, I., Styner, M., Landman, B., <a href="https://doi.org/10.1007/978-3-030-00928-1_96">Hierarchical Spherical Deformation for Shape Correspondence</a>, <i>Medical Image Computing and Computer Assisted Intervention (MICCAI) 2018</i>, LNCS11070, 853-861, 2018.</li>
 
