@@ -3,25 +3,23 @@
 ## Description
 We present hierarchical spherical deformation for group-wise shape correspondence to address template selection bias and to minimize registration distortion. In this work, we aim at a continuous and smooth deformation field to guide accurate cortical surface registration. In conventional spherical registration methods, global rigid alignment and local deformation are independently preformed. Motivated by the composition of precession and intrinsic rotation, we simultaneously optimize global rigid rotation and non-rigid local deformation by utilizing spherical harmonics interpolation of local composite rotations in a single framework. To this end, we indirectly encode local displacements by such local composite rotations as functions of spherical locations. Furthermore, we introduce an additional regularization term to the spherical deformation, which maximizes its rigidity while reducing registration distortion. To improve surface registration performance, we employ the second order approximation of the energy function that enables fast convergence of the optimization. In the experiments, we show an improved shape correspondence with high accuracy in cortical surface parcellation and significantly low registration distortion in surface area and edge length.
 
-##
-### Environment
+## Environment
 * Parallel processing: this tool supports OpenMP and will perform the best efficiency with CUDA.
 * Memory: it requires about 0.5Gb per subject.
-##
-### Installation
+## Installation
 You can download and compile the source code using <a href="https://cmake.org/">CMake</a>. Or you can pull <a href="https://hub.docker.com/r/ilwoolyu/cmorph/">docker image</a>:
 ```
 $ docker pull ilwoolyu/cmorph:1.0
 ```
-### Usage
-#### Input
+## Usage
+### Input
 * surface file (.vtk): triangular sphere mesh
 * feature file (.txt): scalar map - scalar value per line (corresponding to vertex)
 
-#### Output
+### Output
 * surface file (.vtk): triangular deformed sphere mesh
 
-#### Basic command
+### Basic commands
 This tools supports N many subjects in theory as long as memory capacity is allowed. Let's assume N=3 in this example.
 The following command line will generate `s?.sphere.reg.vtk`:
 ```
@@ -50,7 +48,7 @@ To enable multi-thread support (OpenMP):
 ```
 $ HSD --nThreads <# of threads>
 ```
-#### Multi-resolution approach
+### Multi-resolution approach
 If multi-feature maps are available, surface registration can be performed in a multi-resolution manner. Once again, we assume N=3 with the following features: {`s1.sulc.txt`, `s2.sulc.txt`, `s3.sulc.txt`} and {`s1.curv.txt`, `s2.curv.txt`, `s3.curv.txt`}. Let's register *sulc* maps first at low resolution `--icosahedron 5`:
 ```
 $ HSD \
@@ -77,7 +75,7 @@ $ HSD \
 ```
 We can also create and use spherical harmonics coefficients for each resolution `s1.coff.txt`, `s2.coff.txt`, `s3.coff.txt` rather than create deformed spheres. This will save storage and time for file writing.
 
-#### Pairwise registration
+### Pairwise registration
 In case of pairwise registration, one of the subjects can be regarded as a template. 
 The following command line set the first subject as a template and other subjects are registered to this.
 ```
@@ -115,12 +113,12 @@ $ nvidia-docker run \
              -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
 ```
 Please refer to our papers [[1](#ref1)] for technical details (theory, parameters, methodological validation, etc.).
-##
-### Requirements for build
+
+## Requirements for build
 <a href="https://github.com/ilwoolyu/MeshLib">MeshLib (general mesh processing)</a><br />
 <a href="https://github.com/Slicer/SlicerExecutionModel">SlicerExecutionModel (CLI)</a>
 
-### References
+## References
 <ol>
 <li><a id="ref1"></a>Lyu, I., Styner, M., Landman, B., <a href="https://doi.org/10.1007/978-3-030-00928-1_96">Hierarchical Spherical Deformation for Shape Correspondence</a>, <i>Medical Image Computing and Computer Assisted Intervention (MICCAI) 2018</i>, LNCS11070, 853-861, 2018.</li>
 
