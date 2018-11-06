@@ -192,7 +192,8 @@ int main(int argc, char *argv[])
 
 #ifdef _USE_OPENMP
 	// OPENMP setup
-	if (nThreads == 0) nThreads = max(atoi(getenv("OMP_NUM_THREADS")), 1);
+	const char *env = getenv("OMP_NUM_THREADS");
+	nThreads = (env != NULL) ? max(atoi(env), 1) : 1;
 	omp_set_num_threads(nThreads);
 #endif
   
