@@ -134,8 +134,6 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_coeff = new double[m_csize * 3];	// how many coefficients are required: the sum of all possible coefficients
 	m_coeff_prev_step = new double[m_csize * 3];	// the previous coefficients
 	m_gradient = new double[m_csize * 3];
-	m_gradient_raw = new double[163842 * 3 * csize * 2];	// work space for jacobian
-	m_gradient_diag = new double[163842];	// work space for jacobian
 	m_pole = new float[m_nSubj * 3 * 2];	// pole information
 	m_Tbasis = new float[m_nSubj * 3 * 2];	// tangent plane for the exponential map
 	
@@ -325,6 +323,15 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 			m_spharm[subj].ico_cache = NULL;
 		}
 	}
+
+	// Find the maximum buffer size for gradients
+	m_nMaxVertex = 0;
+	for (int subj = 0; subj < m_nSubj; subj++)
+	{
+		m_nMaxVertex = (m_nMaxVertex < m_spharm[subj].sphere->nVertex()) ? m_spharm[subj].sphere->nVertex(): m_nMaxVertex;
+	}
+	m_gradient_raw = new double[m_nMaxVertex * 3 * csize * 2];	// work space for jacobian
+	m_gradient_diag = new double[m_nMaxVertex];	// work space for jacobian
 
 	cout << "Feature vector creation\n";
 
@@ -1098,7 +1105,7 @@ void HSD::ATB(double *A, int nr_rows_A, int nr_cols_A, double *B, int nr_cols_B,
 
 void HSD::ATDA(double *A, double *D, int nr_rows_A, int nr_cols_A, double *B)
 {
-	double *DA = &A[163842 * 3 * (m_degree + 1) * (m_degree + 1)];
+	double *DA = &A[m_nMaxVertex * 3 * (m_degree + 1) * (m_degree + 1)];
 	for (int row = 0; row < nr_rows_A; row++)
 		for (int col = 0; col < nr_cols_A; col++)
 			DA[row * nr_cols_A + col] = D[row] * A[row * nr_cols_A + col];

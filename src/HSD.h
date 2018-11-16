@@ -133,6 +133,7 @@ private:
 	int m_icosahedron;
 	int m_nSamples;
 	int m_fine_res;
+	int m_nMaxVertex;
 	
 	double *m_coeff;
 	double *m_coeff_prev_step;	// previous coefficients
