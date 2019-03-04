@@ -23,7 +23,7 @@ class HSD
 {
 public:
 	HSD(void);
-	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL);
+	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true);
 	~HSD(void);
 	void run(void);
 	void saveCoeff(const char *filename, int id);
@@ -41,6 +41,7 @@ private:
 	void initTangentPlane(int subj);
 	void initArea(int subj, bool verbose = false);
 	void initPairwise(const char *tmpVariance);
+	void guessInitCoeff(void);
 	int icosahedron(int degree, Mesh *mesh);
 	int sphericalCoord(int degree);
 
@@ -105,7 +106,6 @@ private:
 		Mesh *surf;
 		float *property;
 		int *tree_cache;
-		int *ico_cache;
 		float *meanProperty;
 		float *medianProperty;
 		float *maxProperty;
@@ -147,6 +147,7 @@ private:
 	bool m_realtime_coeff;
 	bool m_pairwise;
 	bool m_multi_res;
+	bool m_guess;
 	spharm *m_spharm;
 	vector<float> m_propertySamples;
 	
@@ -179,8 +180,6 @@ private:
 	const char **m_outputcoeff;
 	
 	Mesh *m_ico_mesh;
-	AABB_Sphere *m_ico_tree;
-	vector<point *> m_ico_point;
 };
 
 class cost_function_subj

@@ -85,6 +85,8 @@ $ HSD \
 ```
 >**Note**: You can also create and use spherical harmonics coefficients for each resolution `s1.coff.txt`, `s2.coff.txt`, `s3.coff.txt` with --writecoeff and -c options rather than create and feed deformed spheres (-s and -o). This will save storage and time for file writing.
 
+>**Note**: Use `--guess` for an initial guess for rigid alignment if only a single (high) resolution is available.
+
 ### Pairwise registration
 In case of pairwise registration, one of the subjects can be regarded as a template. 
 The following command line set the first subject as a template and other subjects are registered to this.
@@ -130,6 +132,6 @@ Please refer to our papers [[1](#ref1),[2](#ref2)] for technical details (theory
 
 ## References
 <ol>
-<li><a id="ref1"></a>Lyu, I., Woodward, N., Styner, M., Landman, B., Hierarchical Spherical Deformation for Cortical Surface Registration, under review</li>
+<li><a id="ref1"></a>Lyu, I., Kang, H., Woodward, N., Styner, M., Landman, B., Hierarchical Spherical Deformation for Cortical Surface Registration, under review</li>
 <li><a id="ref2"></a>Lyu, I., Styner, M., Landman, B., <a href="https://doi.org/10.1007/978-3-030-00928-1_96">Hierarchical Spherical Deformation for Shape Correspondence</a>, <i>Medical Image Computing and Computer Assisted Intervention (MICCAI) 2018</i>, LNCS11070, 853-861, 2018</li>
 

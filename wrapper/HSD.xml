@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <executable>
 	<title>Hierarchical Spherical Deformation for Cortical Surface Registration</title>
-	<version>1.1</version>
+	<version>1.2</version>
 	<contributor>Ilwoo Lyu</contributor>
 	<description>Please refer to the following paper for details: Lyu et al., Hierarchical Spherical Deformation for Shape Correspondence, MICCAI 2018.</description>
 	<parameters>
@@ -132,6 +132,11 @@
 			<longflag>writecoeff</longflag>
 			<name>realtimeCoeff</name>
 			<description>enables real-time coefficient writing whenever the cost function is minimized, which may lead to significant IO overhead</description>
+		</boolean>
+		<boolean>
+			<longflag>guess</longflag>
+			<name>guess</name>
+			<description>enables an initial guess for rigid alignment</description>
 		</boolean>
 		<integer>
 			<longflag>nThreads</longflag>

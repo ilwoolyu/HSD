@@ -34,12 +34,13 @@ HSD::HSD(void)
 	m_degree_inc = 0;	// starting degree for the incremental optimization
 	m_icosahedron = 1;
 	m_fine_res = 6;
+	m_guess = true;
 	m_realtime_coeff = false;
 	m_pairwise = false;
 	m_multi_res = true;
 }
 
-HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance)
+HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess)
 {
 	m_maxIter = maxIter;
 	m_nSubj = nSubj;
@@ -52,6 +53,7 @@ HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties,
 	m_lambda1 = 1;
 	m_lambda2 = idprior;
 	m_fine_res = 6;
+	m_guess = guess;
 	m_pole = NULL;
 	m_eta = (landmark == NULL)? 1: weightMap;
 	m_degree_inc = 0;	// starting degree for the incremental optimization
@@ -320,7 +322,6 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		else
 		{
 			m_spharm[subj].tree_cache = NULL;
-			m_spharm[subj].ico_cache = NULL;
 		}
 	}
 
@@ -1286,8 +1287,7 @@ double HSD::varProperties(int subj_id)
 		}
 		cost += sd;
 	}
-	cost /= (m_nSubj - 1);
-	if (m_pairwise) cost /= 2;
+	cost /= m_nSubj;
 
 	return cost;
 }
@@ -2042,9 +2042,100 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 	delete [] grad;
 }
 
+void HSD::guessInitCoeff(void)
+{
+	int nSamples = m_nSamples;
+	#pragma omp parallel for
+	for (int subj = 0; subj < m_nSubj; subj++)
+	{
+		if (m_spharm[subj].fixed) continue;
+		m_nSamples = min(10242, m_nSamples);
+		// spharm basis
+		int n = (m_degree + 1) * (m_degree + 1);
+		int nLandmark = m_spharm[0].landmark.size();
+		double *coeff = m_spharm[subj].coeff;
+		double *coeff_prev_step = m_spharm[subj].coeff_prev_step;
+		double mincost = FLT_MAX;
+		// cart coordinate
+		float axis0[3], axis1[3];
+		Coordinate::sph2cart(m_spharm[subj].pole[0], m_spharm[subj].pole[1], axis0);
+		Vector P = axis0;
+
+		for (double c1 = 0; c1 <= PI / 16; c1 += PI / 16)
+		{
+			for (double c2 = 0; c2 < 2 * PI; c2 += PI / 8)
+			{
+				if (c1 == 0 && c2 > 0) continue;
+				for (double c3 = -PI / 8; c3 <= PI / 8; c3 += PI / 16)
+				{
+					double delta[3];
+					delta[0] = c3;
+					delta[1] = c1 * cos(c2);
+					delta[2] = c1 * sin(c2);
+
+					// exponential map (linear)
+					const float *axis = (P + Vector(m_spharm[subj].tan1) * delta[1] + Vector(m_spharm[subj].tan2) * delta[2]).unit().fv();
+					axis1[0] = axis[0]; axis1[1] = axis[1]; axis1[2] = axis[2];
+
+					// standard pole
+					Vector Q = axis1;
+					float angle = (float)c1;
+					Vector A = P.cross(Q); A.unit();
+
+					float rv[3];
+					float rot[9];
+
+					for (int i = 0; i < m_spharm[subj].vertex.size(); i++)
+					{
+						Vertex *v = (Vertex *)m_spharm[subj].sphere->vertex(i);
+						float v1[3];
+						const float *v0 = m_spharm[subj].vertex[i]->p;
+						Coordinate::rotation(A.fv(), angle, rot);
+						Coordinate::rotPoint(v0, rot, rv);
+
+						// rotation
+						Coordinate::rotation(Q.fv(), (float)delta[0], rot);
+						Coordinate::rotPoint(rv, rot, v1);
+
+						Vector V(v1); V.unit();
+						v->setVertex(V.fv());
+					}
+					m_updated[subj] = false;
+
+					double cost = trace(subj);
+
+					if (cost < mincost)
+					{
+						coeff[0] = delta[0] / m_spharm[subj].Y[0];
+						coeff[n] = delta[1] / m_spharm[subj].Y[0];
+						coeff[2 * n] = delta[2] / m_spharm[subj].Y[0];
+						mincost = cost;
+						/*cout << mincost << ": ";
+						cout << c1 << " " << c2 << " " << c3 << endl;*/
+					}
+				}
+			}
+		}
+
+		m_nSamples = nSamples;
+		updateDeformation(subj, true);	// update defomation fields
+		if (nLandmark > 0) updateLandmark(subj);
+		// update properties
+		updateProperties(subj);
+	}
+}
+
 void HSD::optimization(void)
 {
 	const int step = 1;
+	
+	if (m_guess)
+	{
+		cout << "Guess initial coeffs.. ";
+		fflush(stdout);
+		guessInitCoeff();
+		cout << "done" << endl;
+	}
 	
 	while (m_degree_inc <= m_degree)
 	{
