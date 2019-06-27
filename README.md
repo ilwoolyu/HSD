@@ -132,6 +132,6 @@ Please refer to our papers [[1](#ref1),[2](#ref2)] for technical details (theory
 
 ## References
 <ol>
-<li><a id="ref1"></a>Lyu, I., Kang, H., Woodward, N., Styner, M., Landman, B., Hierarchical Spherical Deformation for Cortical Surface Registration, under review</li>
+<li><a id="ref1"></a>Lyu, I., Kang, H., Woodward, N., Styner, M., Landman, B., <a href="">Hierarchical Spherical Deformation for Cortical Surface Registration</a>, <i>Medical Image Analysis</i></li>
 <li><a id="ref2"></a>Lyu, I., Styner, M., Landman, B., <a href="https://doi.org/10.1007/978-3-030-00928-1_96">Hierarchical Spherical Deformation for Shape Correspondence</a>, <i>Medical Image Computing and Computer Assisted Intervention (MICCAI) 2018</i>, LNCS11070, 853-861, 2018</li>
 

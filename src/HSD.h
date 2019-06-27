@@ -174,6 +174,7 @@ private:
 	double *m_gradient_new;
 	// tic
 	int nIter;
+	int nSuccessIter;
 
 	// output list
 	const char **m_output;

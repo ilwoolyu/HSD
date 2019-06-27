@@ -173,6 +173,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	{
 		cout << "Running on pair-wise registration" << endl;
 		m_multi_res = true;
+		m_lambda2 *= 0.32;
 	}
 	
 	cout << "Initialzation of subject information\n";
@@ -1057,8 +1058,8 @@ double HSD::trace(int subj_id)
 		updateProperties(subj_id);
 		m_cost_prop = varProperties(subj_id);
 	}
-	m_cost_area = (m_degree_inc == 0 || m_icosahedron >= m_fine_res) ? 0: varArea(subj_id);
-	m_cost_disp = (m_degree_inc == 0 || m_icosahedron < m_fine_res) ? 0: varDisplacement(subj_id);
+	m_cost_area = (m_degree_inc == 0 || m_icosahedron >= m_fine_res || m_lambda2 == 0) ? 0: varArea(subj_id);
+	m_cost_disp = (m_degree_inc == 0 || m_icosahedron < m_fine_res || m_lambda2 == 0) ? 0: varDisplacement(subj_id);
 	
 	// the amount of allowable deformation
 	if (m_icosahedron < m_fine_res)
@@ -1364,7 +1365,8 @@ void HSD::minGradientDescent(int deg_beg, int deg_end, int subj_id)
 	int size = n - n0;
 	int nSamples = m_nSamples;
 	int nLandmark = m_spharm[0].landmark.size();
-
+	nSuccessIter = 0;
+    
 	double t = 1;
 	
 	m_mincost = cost(subj_id);
@@ -1381,7 +1383,8 @@ void HSD::minGradientDescent(int deg_beg, int deg_end, int subj_id)
 		if (nIter > m_maxIter && m_icosahedron >= m_fine_res && deg_beg == 0 && deg_end == m_degree) break;
 		if (success)
 		{
-			updateGradient(deg_beg, deg_end, 0.001 * t / (nIter + 1), subj_id);
+			//updateGradient(deg_beg, deg_end, 0.001 * t / (nIter + 1), subj_id);
+			updateGradient(deg_beg, deg_end, 0.001 * t / (nSuccessIter + 1), subj_id);
 			norm = 0;
 			for (int i = 0; i < m_csize * 3; i++)
 				norm += m_gradient[i] * m_gradient[i];
@@ -1439,6 +1442,7 @@ void HSD::minGradientDescent(int deg_beg, int deg_end, int subj_id)
 				break;
 			}
 			m_mincost = currentCost;
+			nSuccessIter++;
 		}
 		else
 		{
@@ -1533,7 +1537,8 @@ void HSD::updateNewGradient(int deg_beg, int deg_end, double lambda, int subj)
 	int size = n - n0;
 	double *M = m_Hessian;
 	double *G = m_gradient_new;
-	double alpha = (m_icosahedron >= m_fine_res && deg_beg == 0 && deg_end == m_degree) ? 0.001 / exp(nIter): 0;
+	//double alpha = (m_icosahedron >= m_fine_res && deg_beg == 0 && deg_end == m_degree) ? 0.001 / exp(nIter): 0;
+	double alpha = (m_icosahedron >= m_fine_res && deg_beg == 0 && deg_end == m_degree) ? 0.001 / exp(nSuccessIter): 0;
 	int i = 0;
 	for (int j = 0; j < size * 3; j++, i++)
 		if (alpha != 0) M[size * 3 * j + i] += M[size * 3 * j + i] * lambda + alpha;
@@ -2157,7 +2162,7 @@ void HSD::optimization(void)
 		}
 	}
 	if (!m_multi_res) m_fine_res = m_icosahedron - 1;
-	if (m_icosahedron == 7)
+	if (m_multi_res || (!m_multi_res && m_icosahedron == 7))
 	{
 		cout << "Phase: Final" << endl;
 		nIter = 0;
