@@ -2017,7 +2017,7 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 				dxdu1 *= drdx;
 				dxdu2 *= drdx;
 
-				if (m_icosahedron >= m_fine_res) m_gradient_diag[i] = normalization;
+				if (m_icosahedron >= m_fine_res) m_gradient_diag[i] = normalization / nVertex;
 				
 				//cout << "dxdg: " << dxdg << " dxdu1: " << dxdu1 << " dxdu2: " << dxdu1 << endl;
 			}
@@ -2128,6 +2128,7 @@ void HSD::guessInitCoeff(void)
 		// update properties
 		updateProperties(subj);
 	}
+	memcpy(m_coeff_prev_step, m_coeff, sizeof(double) * m_csize * 3);
 }
 
 void HSD::optimization(void)
