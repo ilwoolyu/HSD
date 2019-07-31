@@ -2,7 +2,7 @@
  *	main.cpp
  *
  *	Release: Sep 2016
- *	Update: Sep 2018
+ *	Update: Jul 2019
  *
  *	University of North Carolina at Chapel Hill
  *	Department of Computer Science
@@ -200,7 +200,7 @@ int main(int argc, char *argv[])
 	omp_set_num_threads(nThreads);
 #endif
   
-    HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, guess);
+    HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess);
     hsd.run();
     
     // delete memory allocation

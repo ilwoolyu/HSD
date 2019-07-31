@@ -2,7 +2,7 @@
 *	HSD.h
 *
 *	Release: Sep 2016
-*	Update: May 2018
+*	Update: Jul 2019
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -132,6 +132,7 @@ private:
 	int m_nDeformableSubj;
 	int m_icosahedron;
 	int m_nSamples;
+	int m_nQuerySamples;
 	int m_fine_res;
 	int m_nMaxVertex;
 	

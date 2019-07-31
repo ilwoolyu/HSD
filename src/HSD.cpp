@@ -2,7 +2,7 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: Jul 2018
+*	Update: Jul 2019
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -275,6 +275,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	cout << "Computing weight terms" << endl;
 	int nLandmark = m_spharm[0].landmark.size() * 3;	// # of landmarks: we assume all the subject has the same number, which already is checked above.
 	int nSamples = m_propertySamples.size() / 3;	// # of sampling points for property map agreement
+	m_nQuerySamples = nSamples;
 	
 	// weights for covariance matrix computation
 	int nTotalProperties = m_nProperties + m_nSurfaceProperties;	// if location information is provided, total number = # of property + 3 -> (x, y, z location)
@@ -721,7 +722,7 @@ void HSD::initLandmarks(int subj, const char **landmark)
 
 void HSD::initPairwise(const char *tmpVariance)
 {
-	int nSamples = m_nSamples;
+	int nSamples = m_nQuerySamples;
 	if (tmpVariance != NULL)
 	{
 		int tmp = (m_spharm[0].fixed) ? 0: 1;
@@ -758,19 +759,19 @@ void HSD::initPairwise(const char *tmpVariance)
 
 				Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff);
 
-				m_variance[nSamples * k + i] = propertyInterpolation(&var[nVertex * k], fid, coeff, m_spharm[tmp].sphere);
+				m_variance[m_nSamples * k + i] = propertyInterpolation(&var[nVertex * k], fid, coeff, m_spharm[tmp].sphere);
 			}
-			SurfaceUtil::smoothing(m_ico_mesh, 3, &m_variance[nSamples * k]);
+			SurfaceUtil::smoothing(m_ico_mesh, 3, &m_variance[m_nSamples * k]);
 			double m = 0;
-			for (int i = 0; i < m_nSamples; i++)
-				m += m_variance[nSamples * k + i] / m_nSamples;
+			for (int i = 0; i < nSamples; i++)
+				m += m_variance[m_nSamples * k + i] / nSamples;
 			m_cost_var = m;
 			m *= 0.1;
 			if (m < 1e-5) m = 1;
-			for (int i = 0; i < m_nSamples; i++)
+			for (int i = 0; i < nSamples; i++)
 			{
-				if (m_variance[nSamples * k + i] < m)
-					m_variance[nSamples * k + i] = m;
+				if (m_variance[m_nSamples * k + i] < m)
+					m_variance[m_nSamples * k + i] = m;
 			}
 		}
 	
@@ -780,7 +781,7 @@ void HSD::initPairwise(const char *tmpVariance)
 	{
 		for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
 			for (int i = 0; i < nSamples; i++)
-				m_variance[nSamples * k + i] = 1.0;
+				m_variance[m_nSamples * k + i] = 1.0;
 	}
 }
 
@@ -865,7 +866,6 @@ void HSD::updateDeformation(int subject, bool enforce)
 void HSD::updateLandmark(int subj_id)
 {
 	int nLandmark = m_spharm[0].landmark.size();
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
 
 	for (int i = 0; i < nLandmark; i++)
 	{
@@ -873,7 +873,7 @@ void HSD::updateLandmark(int subj_id)
 		{
 			if (subj_id != -1 && subj != subj_id) continue;
 			int id = m_spharm[subj].landmark[i]->id;
-			updateCoordinate(m_spharm[subj].landmark[i]->p, &m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3], m_spharm[subj].landmark[i]->Y, (const double *)m_spharm[subj].coeff, m_degree_inc, m_spharm[subj].pole, m_spharm[subj].tan1, m_spharm[subj].tan2);
+			updateCoordinate(m_spharm[subj].landmark[i]->p, &m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3], m_spharm[subj].landmark[i]->Y, (const double *)m_spharm[subj].coeff, m_degree_inc, m_spharm[subj].pole, m_spharm[subj].tan1, m_spharm[subj].tan2);
 		}
 	}
 }
@@ -881,7 +881,7 @@ void HSD::updateLandmark(int subj_id)
 void HSD::updateProperties(int subj_id)
 {
 	int nLandmark = m_spharm[0].landmark.size();
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
+	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
 	
 	const float err = 0;
 
@@ -929,7 +929,7 @@ void HSD::updateProperties(int subj_id)
 			int nVertex = m_spharm[subj].sphere->nVertex();
 			for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
 			{
-				m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + nSamples * k + i] = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, coeff, m_spharm[subj].sphere);
+				m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + m_nSamples * k + i] = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, coeff, m_spharm[subj].sphere);
 			}
 			m_spharm[subj].tree_cache[i] = fid;
 		}
@@ -940,7 +940,7 @@ void HSD::updateProperties(int subj_id)
 void HSD::updatePropertyStats(void)
 {
 	int nLandmark = m_spharm[0].landmark.size();
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
+	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
 
 	double mean = 0;
 	#pragma omp parallel for
@@ -952,47 +952,47 @@ void HSD::updatePropertyStats(void)
 			for (int subj = 0; subj < m_nSubj; subj++)
 			{
 				if ((m_nDeformableSubj == m_nSubj) || (m_nDeformableSubj < m_nSubj && m_spharm[subj].fixed))
-					m += m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + nSamples * k + i];
+					m += m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + m_nSamples * k + i];
 			}
 			// use the mean of the fixed subjects
 			m = (m_nSubj == m_nDeformableSubj) ? m / m_nSubj: m / (m_nSubj - m_nDeformableSubj);
-			m_mean[nSamples * k + i] = m;
+			m_mean[m_nSamples * k + i] = m;
 		}
 		if (m_pairwise) continue;
 		if (m_degree_inc == 0 || m_icosahedron < m_fine_res)
 		{
 			for (int i = 0; i < nSamples; i++)
-				m_variance[nSamples * k + i] = 1.0;
+				m_variance[m_nSamples * k + i] = 1.0;
 		}
 		else
 		{
 			for (int i = 0; i < nSamples; i++)
 			{
-				double m = m_mean[nSamples * k + i];
+				double m = m_mean[m_nSamples * k + i];
 				double sd = 0;
 				for (int subj = 0; subj < m_nSubj; subj++)
 				{
-					double p = m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + nSamples * k + i];
-					double w = m_feature_weight[nLandmark * 3 + nSamples * k + i];
+					double p = m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + m_nSamples * k + i];
+					double w = m_feature_weight[nLandmark * 3 + m_nSamples * k + i];
 					double pm = (p - m);
 					//pm *= w;
 					//pm /= (m_nProperties + m_nSurfaceProperties) * nSamples;
 					sd += pm * pm / (m_nSubj - 1);
 				}
-				m_variance[nSamples * k + i] = sd;
+				m_variance[m_nSamples * k + i] = sd;
 			}
-			//SurfaceUtil::smoothing(m_ico_mesh, 3, &m_mean[nSamples * k]);
+			//SurfaceUtil::smoothing(m_ico_mesh, 3, &m_mean[m_nSamples * k]);
 			SurfaceUtil::smoothing(m_ico_mesh, 3, &m_variance[nSamples * k]);
 			double m = 0;
-			for (int i = 0; i < m_nSamples; i++)
-				m += m_variance[nSamples * k + i] / m_nSamples;
+			for (int i = 0; i < nSamples; i++)
+				m += m_variance[m_nSamples * k + i] / nSamples;
 			m_cost_var = m;
 			m *= 0.1;
 			if (m < 1e-5) m = 1;
-			for (int i = 0; i < m_nSamples; i++)
+			for (int i = 0; i < nSamples; i++)
 			{
-				if (m_variance[nSamples * k + i] < m)
-					m_variance[nSamples * k + i] = m;
+				if (m_variance[m_nSamples * k + i] < m)
+					m_variance[m_nSamples * k + i] = m;
 			}
 		}
 	}
@@ -1041,7 +1041,7 @@ void HSD::updateDisplacement(int subj_id, int degree)
 double HSD::trace(int subj_id)
 {
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject has the same number
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
+	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
 	
 	double E = 0;	// trace
 	
@@ -1058,6 +1058,7 @@ double HSD::trace(int subj_id)
 		updateProperties(subj_id);
 		m_cost_prop = varProperties(subj_id);
 	}
+
 	m_cost_area = (m_degree_inc == 0 || m_icosahedron >= m_fine_res || m_lambda2 == 0) ? 0: varArea(subj_id);
 	m_cost_disp = (m_degree_inc == 0 || m_icosahedron < m_fine_res || m_lambda2 == 0) ? 0: varDisplacement(subj_id);
 	
@@ -1207,7 +1208,6 @@ double HSD::varLandmarks(int subj_id)
 {
 	double cost = 0;
 	int nLandmark = m_spharm[0].landmark.size();
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
 
 	for (int i = 0; i < nLandmark; i++)
 	{
@@ -1216,11 +1216,11 @@ double HSD::varLandmarks(int subj_id)
 		{
 			if (subj_id != -1 && subj_id != subj) continue;
 			int id = m_spharm[subj].landmark[i]->id;
-			updateCoordinate(m_spharm[subj].landmark[i]->p, &m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3], m_spharm[subj].landmark[i]->Y, (const double *)m_spharm[subj].coeff, m_degree_inc, m_spharm[subj].pole, m_spharm[subj].tan1, m_spharm[subj].tan2);
+			updateCoordinate(m_spharm[subj].landmark[i]->p, &m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3], m_spharm[subj].landmark[i]->Y, (const double *)m_spharm[subj].coeff, m_degree_inc, m_spharm[subj].pole, m_spharm[subj].tan1, m_spharm[subj].tan2);
 			
 			// mean locations
 			if ((m_nDeformableSubj == m_nSubj) || (m_nDeformableSubj < m_nSubj && m_spharm[subj].fixed))
-				for (int k = 0; k < 3; k++) m[k] += m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3 + k];
+				for (int k = 0; k < 3; k++) m[k] += m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3 + k];
 		}
 		// forcing the mean to be on the sphere
 		double norm = sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
@@ -1230,8 +1230,8 @@ double HSD::varLandmarks(int subj_id)
 		/*for (int subj = 0; subj < m_nSubj; subj++)
 		{
 			float newp[3];
-			Coordinate::proj2plane(m[0], m[1], m[2], -1, &m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3], newp);
-			memcpy(&m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3], newp, sizeof(float) * 3);
+			Coordinate::proj2plane(m[0], m[1], m[2], -1, &m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3], newp);
+			memcpy(&m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3], newp, sizeof(float) * 3);
 		}*/
 		
 		double sd = 0;
@@ -1239,7 +1239,7 @@ double HSD::varLandmarks(int subj_id)
 		{
 			if (subj_id != -1 && subj_id != subj) continue;
 			double inner = 0;
-			float *fpoint = &m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3];
+			float *fpoint = &m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3];
 			double w = m_feature_weight[i * 3];
 			
 			for (int k = 0; k < 3; k++)
@@ -1265,24 +1265,24 @@ double HSD::varProperties(int subj_id)
 {
 	double cost = 0;
 	int nLandmark = m_spharm[0].landmark.size();
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
+	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
 
 	for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
 	{
 		double sd = 0;
-		for (int i = 0; i < m_nSamples; i++)
+		for (int i = 0; i < nSamples; i++)
 		{
-			double m = m_mean[nSamples * k + i];
+			double m = m_mean[m_nSamples * k + i];
 			for (int subj = 0; subj < m_nSubj; subj++)
 			{
 				if (subj_id != -1 && subj_id != subj) continue;
 				if (m_spharm[subj].fixed) continue;
-				double p = m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + nSamples * k + i];
-				double w = m_feature_weight[nLandmark * 3 + nSamples * k + i];
+				double p = m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + m_nSamples * k + i];
+				double w = m_feature_weight[nLandmark * 3 + m_nSamples * k + i];
 				//sd += (p - m) * (p - m) * w * w;
 				double pm = (p - m);
 				//pm *= w;
-				double var = (m_pairwise && m_degree_inc == 0) ? 1: m_variance[nSamples * k + i];
+				double var = (m_pairwise && m_degree_inc == 0) ? 1: m_variance[m_nSamples * k + i];
 				sd += pm * pm / ((m_nProperties + m_nSurfaceProperties) * m_nSamples) / var;
 			}
 		}
@@ -1363,7 +1363,7 @@ void HSD::minGradientDescent(int deg_beg, int deg_end, int subj_id)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
-	int nSamples = m_nSamples;
+	int nSamples = m_nQuerySamples;
 	int nLandmark = m_spharm[0].landmark.size();
 	nSuccessIter = 0;
     
@@ -1478,7 +1478,7 @@ void HSD::updateGradient(int deg_beg, int deg_end, double lambda, int subj_id)
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject have the same number
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
+	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
 	
 	memset(m_gradient, 0, sizeof(double) * m_csize * 3);
 
@@ -1566,7 +1566,6 @@ void HSD::updateNewGradient(int deg_beg, int deg_end, double lambda, int subj)
 void HSD::updateGradientLandmark(int deg_beg, int deg_end, int subj_id)
 {
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject has the same number
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
 	int nCoeff = (m_degree + 1) * (m_degree + 1);
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
@@ -1583,7 +1582,7 @@ void HSD::updateGradientLandmark(int deg_beg, int deg_end, int subj_id)
 			// x_bar
 			double x_bar[3] = {0, 0, 0};
 			for (int j = 0; j < m_nSubj; j++)
-				for (int k = 0; k < 3; k++) x_bar[k] += m_feature[j * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3 + k];
+				for (int k = 0; k < 3; k++) x_bar[k] += m_feature[j * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3 + k];
 			// forcing the mean to be on the sphere
 			double norm = sqrt(x_bar[0] * x_bar[0] + x_bar[1] * x_bar[1] + x_bar[2] * x_bar[2]);
 			//cout << "[" << i << "] x_bar: " << x_bar[0] << " " << x_bar[1] << " " << x_bar[2] << endl;
@@ -1619,7 +1618,7 @@ void HSD::updateGradientLandmark(int deg_beg, int deg_end, int subj_id)
 			//cout << "z_hat: " << z_hat[0] << " " << z_hat[1] << " " << z_hat[2] << endl;
 			
 			// x_hat
-			float *x_hat = &m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3];
+			float *x_hat = &m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + i * 3];
 			
 			double x_hat_dot_x_bar = Vector(x_hat) * Vector(x_bar);
 			
@@ -1694,7 +1693,7 @@ void HSD::updateGradientLandmark(int deg_beg, int deg_end, int subj_id)
 void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id)
 {
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject has the same number
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
+	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
 	int nCoeff = (m_degree + 1) * (m_degree + 1);
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
@@ -1707,12 +1706,12 @@ void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id)
 	int nFace = m_spharm[subj].sphere->nFace();
 	float *vertex = new float[nVertex * 3]; for (int i = 0; i < nVertex; i++) memcpy(&vertex[i * 3], m_spharm[subj].sphere->vertex(i)->fv(), sizeof(float) * 3);
 	int *face = new int[nFace * 3]; for (int i = 0; i < nFace; i++) memcpy(&face[i * 3], m_spharm[subj].sphere->face(i)->list(), sizeof(int) * 3);
-	const float *feature = &m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + nSamples * k];
+	const float *feature = &m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + m_nSamples * k];
 	const float *propertySamples = (float *)&m_propertySamples[0];
-	const double *variance = &m_variance[nSamples * k];
+	const double *variance = &m_variance[m_nSamples * k];
 	const float *property = &m_spharm[subj].property[nVertex * k];
-	const double *mean = &m_mean[nSamples * k];
-	Gradient::updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, m_Hessian, m_icosahedron >= m_fine_res);
+	const double *mean = &m_mean[m_nSamples * k];
+	Gradient::updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, m_Hessian, m_icosahedron >= m_fine_res);
 	
 	delete [] vertex;
 	delete [] face;
@@ -1722,7 +1721,7 @@ void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id)
 void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 {
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject has the same number
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
+	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
 	int nCoeff = (m_degree + 1) * (m_degree + 1);
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
@@ -1742,7 +1741,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 			for (int i = 0; i < nSamples; i++)
 			{
 				// m_bar
-				const double m_bar = m_mean[nSamples * k + i];
+				const double m_bar = m_mean[m_nSamples * k + i];
 				// spherical coordinate
 				const float *y = &m_propertySamples[i * 3];
 				//cout << "y: " << y[0] << " " << y[1] << " " << y[2] << " " << phi << " " << theta << endl;
@@ -1774,7 +1773,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 					delta[2] += Y * coeff[2 * (m_degree + 1) * (m_degree + 1) + j];
 				}
 				// m
-				const double m = m_feature[subj * (nLandmark * 3 + nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + nSamples * k + i];
+				const double m = m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + m_nSamples * k + i];
 
 				// z
 				float z_hat[3];
@@ -1857,7 +1856,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 				double dEdx = 2 * (m - m_bar);
 				//cout << "dxdg: " << dxdg << " dxdu1: " << dxdu1 << " dxdu2: " << dxdu2 << endl;
 				
-				double var = (m_pairwise && m_degree_inc == 0) ? 1: m_variance[nSamples * k + i];
+				double var = (m_pairwise && m_degree_inc == 0) ? 1: m_variance[m_nSamples * k + i];
 				if (m_icosahedron >= m_fine_res) m_gradient_diag[i] = normalization / var;
 				//totalArea += area;
 				
@@ -1882,7 +1881,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 				m_spharm[subj].gradient[2 * (m_degree + 1) * (m_degree + 1) + j] += grad[size * 2 + j - n0] * normalization;
 			}
 			if (m_icosahedron >= m_fine_res)
-				updateHessian(deg_beg, deg_end, nSamples, subj);
+				updateHessian(deg_beg, deg_end, m_nSamples, subj);
 		}
 	}
 	delete [] grad;
@@ -1892,7 +1891,6 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 void HSD::updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj_id)
 {
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject has the same number
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
 	int nCoeff = (m_degree + 1) * (m_degree + 1);
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
@@ -1915,7 +1913,6 @@ void HSD::updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj_id)
 void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 {
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject has the same number
-	int nSamples = m_nSamples;	// # of sampling points for property map agreement
 	int nCoeff = (m_degree + 1) * (m_degree + 1);
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
@@ -2049,18 +2046,25 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 
 void HSD::guessInitCoeff(void)
 {
-	int nSamples = m_nSamples;
 	#pragma omp parallel for
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		if (m_spharm[subj].fixed) continue;
-		m_nSamples = min(10242, m_nSamples);
+
 		// spharm basis
 		int n = (m_degree + 1) * (m_degree + 1);
 		int nLandmark = m_spharm[0].landmark.size();
 		double *coeff = m_spharm[subj].coeff;
 		double *coeff_prev_step = m_spharm[subj].coeff_prev_step;
 		double mincost = FLT_MAX;
+
+		bool skip = false;
+		for (int i = 0; i < n * 3 && !skip; i++)
+			skip = (coeff[i] != 0);
+		if (skip) continue;
+
+		m_nQuerySamples = min(10242, m_nSamples);
+
 		// cart coordinate
 		float axis0[3], axis1[3];
 		Coordinate::sph2cart(m_spharm[subj].pole[0], m_spharm[subj].pole[1], axis0);
@@ -2122,11 +2126,10 @@ void HSD::guessInitCoeff(void)
 			}
 		}
 
-		m_nSamples = nSamples;
+		m_nQuerySamples = m_nSamples;
 		updateDeformation(subj, true);	// update defomation fields
-		if (nLandmark > 0) updateLandmark(subj);
-		// update properties
-		updateProperties(subj);
+		m_updated[subj] = false;
+		trace(subj);
 	}
 	memcpy(m_coeff_prev_step, m_coeff, sizeof(double) * m_csize * 3);
 }
