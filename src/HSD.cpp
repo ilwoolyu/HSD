@@ -173,7 +173,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	{
 		cout << "Running on pair-wise registration" << endl;
 		m_multi_res = true;
-		m_lambda2 *= 0.32;
+		//m_lambda2 *= 0.32;
 	}
 	
 	cout << "Initialzation of subject information\n";
@@ -1283,7 +1283,7 @@ double HSD::varProperties(int subj_id)
 				double pm = (p - m);
 				//pm *= w;
 				double var = (m_pairwise && m_degree_inc == 0) ? 1: m_variance[m_nSamples * k + i];
-				sd += pm * pm / ((m_nProperties + m_nSurfaceProperties) * m_nSamples) / var;
+				sd += pm * pm / ((m_nProperties + m_nSurfaceProperties) * nSamples) / var;
 			}
 		}
 		cost += sd;
@@ -1698,7 +1698,7 @@ void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
-	double normalization = m_eta * 1.0 / (double)(((m_nProperties + m_nSurfaceProperties) * m_nSamples) * m_nSubj);
+	double normalization = m_eta * 1.0 / (double)(((m_nProperties + m_nSurfaceProperties) * nSamples) * m_nSubj);
 	
 	int k = 0;
 	int subj = subj_id;
@@ -1727,7 +1727,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
 	
-	const double normalization = m_eta * 1.0 / (double)(((m_nProperties + m_nSurfaceProperties) * m_nSamples) * m_nSubj);
+	const double normalization = m_eta * 1.0 / (double)(((m_nProperties + m_nSurfaceProperties) * nSamples) * m_nSubj);
 	
 	double *grad = new double[size * 3];
 	memset(grad, 0, sizeof(double) * size * 3);
@@ -2145,7 +2145,7 @@ void HSD::optimization(void)
 		guessInitCoeff();
 		cout << "done" << endl;
 	}
-	
+
 	while (m_degree_inc <= m_degree)
 	{
 		nIter = 0;

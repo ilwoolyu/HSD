@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <executable>
 	<title>Hierarchical Spherical Deformation for Cortical Surface Registration</title>
-	<version>1.2.2</version>
+	<version>1.2.3</version>
 	<contributor>Ilwoo Lyu</contributor>
 	<description>Please refer to the following paper for details:&#xA;[1] Lyu et al., Hierarchical Spherical Deformation for Shape Correspondence, MICCAI 2018.&#xA;[2] Lyu et al., Hierarchical Spherical Deformation for Cortical Surface Registration, Medical Image Analysis 2019.</description>
 	<parameters>
