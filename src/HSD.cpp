@@ -351,6 +351,8 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_mean = new double[nSamples * nTotalProperties];
 	m_variance = new double[nSamples * nTotalProperties];
 
+	bool guess = m_guess;
+	m_guess = false;
 	// set all the tree needs to be updated
 	memset(m_updated, 0, sizeof(bool) * m_nSubj);
 	if (nLandmark > 0) updateLandmark(); // update landmark
@@ -360,6 +362,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		updateProperties();
 		if (m_pairwise) initPairwise(tmpVariance);
 	}
+	m_guess = guess;
 
 	// inital coefficients for the previous step
 	memcpy(m_coeff_prev_step, m_coeff, sizeof(double) * m_csize * 3);
@@ -934,7 +937,7 @@ void HSD::updateProperties(int subj_id)
 			m_spharm[subj].tree_cache[i] = fid;
 		}
 	}
-	if (m_degree_inc == 0 || m_pairwise) updatePropertyStats();
+	if (!m_guess && (m_degree_inc == 0 || m_pairwise)) updatePropertyStats();
 }
 
 void HSD::updatePropertyStats(void)
@@ -2046,6 +2049,8 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 
 void HSD::guessInitCoeff(void)
 {
+	m_nQuerySamples = min(10242, m_nSamples);
+
 	#pragma omp parallel for
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
@@ -2062,8 +2067,6 @@ void HSD::guessInitCoeff(void)
 		for (int i = 0; i < n * 3 && !skip; i++)
 			skip = (coeff[i] != 0);
 		if (skip) continue;
-
-		m_nQuerySamples = min(10242, m_nSamples);
 
 		// cart coordinate
 		float axis0[3], axis1[3];
@@ -2125,13 +2128,14 @@ void HSD::guessInitCoeff(void)
 				}
 			}
 		}
-
-		m_nQuerySamples = m_nSamples;
-		updateDeformation(subj, true);	// update defomation fields
-		m_updated[subj] = false;
-		trace(subj);
 	}
+	m_nQuerySamples = m_nSamples;
+	#pragma omp parallel for
+	for (int subj = 0; subj < m_nSubj; subj++) updateDeformation(subj, true);
+	memset(m_updated, 0, sizeof(bool) * m_nSubj);
+	trace();
 	memcpy(m_coeff_prev_step, m_coeff, sizeof(double) * m_csize * 3);
+	m_guess = false;
 }
 
 void HSD::optimization(void)
