@@ -97,7 +97,7 @@
 			<longflag>degree</longflag>
 			<flag>d</flag>
 			<name>degree</name>
-			<default>10</default>
+			<default>15</default>
 			<description>provides a degree of spherical harmonics decomposition</description>
 		</integer>
 		<integer>

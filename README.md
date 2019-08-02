@@ -11,7 +11,7 @@ We present hierarchical spherical deformation for group-wise shape correspondenc
 ## Installation
 You can download and compile the source code using <a href="https://cmake.org/">CMake</a>. Or you can pull <a href="https://hub.docker.com/r/ilwoolyu/cmorph/">docker image</a>:
 ```
-$ docker pull ilwoolyu/cmorph:<ver>
+$ docker pull ilwoolyu/cmorph:<version>
 ```
 ## Usage
 ### Input
@@ -105,18 +105,35 @@ In Docker, you need a sudo acces. To run, type:
 $ docker run \
          -v <LOCAL_INPUT_PATH>:/INPUT/ \
          -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
-         --rm ilwoolyu/cmorph:1.0 \
+         --rm ilwoolyu/cmorph:<version> \
          HSD \
              -s /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
              -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
              -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
 ```
-To utilize cublas, you need to install <a href="https://github.com/NVIDIA/nvidia-docker">NVIDIA Container Runtime for Docker</a>.
+
+To support cublas (GPU linear solver), type:
+
+```
+$ docker run \
+         --gpus all \
+         -v <LOCAL_INPUT_PATH>:/INPUT/ \
+         -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
+         --rm ilwoolyu/cmorph:<version> \
+         HSD-cuda \
+             -s /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
+             -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
+             -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
+```
+
+*Docker (> v19.03) supports native GPU devices. The use of NVIDIA Docker is deprecated. Please see [link](https://github.com/NVIDIA/nvidia-docker) for details.*
+
+To utilize cublas, you need to install <a href="https://github.com/NVIDIA/nvidia-docker">NVIDIA Container Runtime for Docker</a> (deprecated).
 ```
 $ nvidia-docker run \
          -v <LOCAL_INPUT_PATH>:/INPUT/ \
          -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
-         --rm ilwoolyu/cmorph:1.0 \
+         --rm ilwoolyu/cmorph:<version> \
          HSD-cuda \
              -s /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
              -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
