@@ -2,7 +2,7 @@
  *	main.cpp
  *
  *	Release: Sep 2016
- *	Update: Jul 2019
+ *	Update: Dec 2019
  *
  *	University of North Carolina at Chapel Hill
  *	Department of Computer Science
@@ -116,6 +116,7 @@ int main(int argc, char *argv[])
     const char **coeff = NULL;
     const char **surf = NULL;
     const char *prior = NULL;
+    const char *icomesh = NULL;
     bool *fixedSubj = NULL;
     
     if (nProperties > 0) property = new const char*[nProperties];
@@ -132,6 +133,7 @@ int main(int argc, char *argv[])
     }
     if (surf == NULL) weightLoc = 0;
     if (!tmpVariance.empty()) prior = tmpVariance.c_str();
+    if (!icoMesh.empty()) icomesh = icoMesh.c_str();
     float *weight = new float[nWeight];
     
     // exception handling
@@ -200,7 +202,7 @@ int main(int argc, char *argv[])
 	omp_set_num_threads(nThreads);
 #endif
   
-    HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess);
+    HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess, icomesh);
     hsd.run();
     
     // delete memory allocation

@@ -2,7 +2,7 @@
 *	HSD.h
 *
 *	Release: Sep 2016
-*	Update: Jul 2019
+*	Update: Dec 2019
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -23,7 +23,7 @@ class HSD
 {
 public:
 	HSD(void);
-	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true);
+	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true, const char *ico_mesh = NULL);
 	~HSD(void);
 	void run(void);
 	void saveCoeff(const char *filename, int id);
@@ -33,7 +33,7 @@ public:
 	
 private:
 	// class members for initilaization
-	void init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree = 3, const bool *fixedSubj = NULL, const char *tmpVariance = NULL);
+	void init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree = 3, const bool *fixedSubj = NULL, const char *tmpVariance = NULL, const char *ico_mesh = NULL);
 	void initSphericalHarmonics(int subj, const char **coeff);
 	void initTriangleFlipping(int subj, bool verbose = false);
 	void initProperties(int subj, const char **property, int nHeaderLines);

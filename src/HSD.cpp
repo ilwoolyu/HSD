@@ -2,7 +2,7 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: Jul 2019
+*	Update: Dec 2019
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -40,7 +40,7 @@ HSD::HSD(void)
 	m_multi_res = true;
 }
 
-HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess)
+HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess, const char *ico_mesh)
 {
 	m_maxIter = maxIter;
 	m_nSubj = nSubj;
@@ -60,7 +60,7 @@ HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties,
 	m_realtime_coeff = realtimeCoeff;
 	m_icosahedron = icosahedron;
 	m_multi_res = true;
-	init(sphere, property, weight, landmark, weightLoc, coeff, surf, icosahedron, fixedSubj, tmpVariance);
+	init(sphere, property, weight, landmark, weightLoc, coeff, surf, icosahedron, fixedSubj, tmpVariance, ico_mesh);
 }
 
 HSD::~HSD(void)
@@ -122,7 +122,7 @@ void HSD::run(void)
 	cout << "All done!\n";
 }
 
-void HSD::init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree, const bool *fixedSubj, const char *tmpVariance)
+void HSD::init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree, const bool *fixedSubj, const char *tmpVariance, const char *ico_mesh)
 {
 	int csize = (m_degree + 1) * (m_degree + 1);
 	m_spharm = new spharm[m_nSubj];	// spharm info
@@ -256,18 +256,46 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	}
 
 	// icosahedron subdivision for evaluation on properties: this generates uniform sampling points over the sphere - m_propertySamples
-	m_ico_mesh = new Mesh();
 	//if (m_nProperties + m_nSurfaceProperties > 0) icosahedron(7, m_ico_mesh);
 	if (m_nProperties + m_nSurfaceProperties > 0)
 	{
-		icosahedron(m_icosahedron, m_ico_mesh);
-		switch (m_icosahedron)
+		m_ico_mesh = new Mesh();
+		if (ico_mesh == NULL)
 		{
-			case 3: m_nSamples = 642; break;
-			case 4: m_nSamples = 2562; break;
-			case 5: m_nSamples = 10242; break;
-			case 6: m_nSamples = 40962; break;
-			case 7: m_nSamples = 163842; break;
+			icosahedron(m_icosahedron, m_ico_mesh);
+			switch (m_icosahedron)
+			{
+				case 3: m_nSamples = 642; break;
+				case 4: m_nSamples = 2562; break;
+				case 5: m_nSamples = 10242; break;
+				case 6: m_nSamples = 40962; break;
+				case 7: m_nSamples = 163842; break;
+			}
+		}
+		else
+		{
+			m_ico_mesh->openFile(ico_mesh);
+			m_nSamples = m_ico_mesh->nVertex();
+			switch (m_nSamples)
+			{
+				case 642: m_icosahedron = 3; break;
+				case 2562: m_icosahedron = 4; break;
+				case 10242: m_icosahedron = 5; break;
+				case 40962: m_icosahedron = 6; break;
+				case 163842: m_icosahedron = 7; break;
+				default: cout << "Fatal error: icosahedron mesh is invalid (vert#=" << m_nSamples << ")" << endl; exit(1); break;
+			}
+			for (int i = 0; i < m_ico_mesh->nVertex(); i++)
+			{
+				Vertex *v = (Vertex *)m_ico_mesh->vertex(i);	// vertex information on the sphere
+				const float *v0 = v->fv();
+				Vector V(v0);
+				const float *p = V.unit().fv();
+				m_propertySamples.push_back(p[0]);
+				m_propertySamples.push_back(p[1]);
+				m_propertySamples.push_back(p[2]);
+			}
+			cout << "Icosahedron level: " << m_icosahedron << endl;
 		}
 	}
 	if (!m_multi_res) m_fine_res = m_icosahedron + 1;

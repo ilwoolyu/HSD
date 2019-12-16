@@ -38,6 +38,10 @@ To change the level of icosahedron subdivision for feature map resampling:
 ```
 $ HSD --icosahedron <level>
 ```
+To load pre-defined icosahedron mesh for feature map resampling (this option will ignore `--icosahedron`):
+```
+$ HSD --icomesh <filename>
+```
 To report spherical harmonics coefficients:
 ```
 $ HSD --writecoeff s1.coeff.txt,s2.coeff.txt,s3.coeff.txt
