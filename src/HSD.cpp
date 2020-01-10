@@ -2,7 +2,7 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: Dec 2019
+*	Update: Jan 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -356,7 +356,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	}
 
 	// Find the maximum buffer size for gradients
-	m_nMaxVertex = 0;
+	m_nMaxVertex = m_nQuerySamples;
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		m_nMaxVertex = (m_nMaxVertex < m_spharm[subj].sphere->nVertex()) ? m_spharm[subj].sphere->nVertex(): m_nMaxVertex;
