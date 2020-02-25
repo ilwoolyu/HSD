@@ -4,9 +4,11 @@ project(HSD)
 
 set(HSD_VERSION_MAJOR 1)
 set(HSD_VERSION_MINOR 2)
-set(HSD_VERSION_PATCH 3)
+set(HSD_VERSION_PATCH 6)
 set(HSD_VERSION
 ${HSD_VERSION_MAJOR}.${HSD_VERSION_MINOR}.${HSD_VERSION_PATCH})
+
+set (CMAKE_CXX_STANDARD 11)
 
 # Set a default build type if none was specified
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -18,10 +20,9 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 find_package(LAPACK REQUIRED)
-find_package(SlicerExecutionModel REQUIRED)
 find_package(MeshLib REQUIRED)
-find_package(CUDA)
-find_package(OpenMP)
+find_package(CUDA QUIET)
+find_package(OpenMP QUIET)
 
 # environmental variables
 if (CUDA_FOUND)

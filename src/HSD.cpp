@@ -26,6 +26,7 @@ HSD::HSD(void)
 	m_nProperties = 0;
 	m_nSurfaceProperties = 0;
 	m_output = NULL;
+	m_outputcoeff = NULL;
 	m_pole = NULL;
 	m_degree = 0;
 	m_eta = 1;
@@ -59,6 +60,7 @@ HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties,
 	m_degree_inc = 0;	// starting degree for the incremental optimization
 	m_realtime_coeff = realtimeCoeff;
 	m_icosahedron = icosahedron;
+	m_pairwise = false;
 	m_multi_res = true;
 	init(sphere, property, weight, landmark, weightLoc, coeff, surf, icosahedron, fixedSubj, tmpVariance, ico_mesh);
 }

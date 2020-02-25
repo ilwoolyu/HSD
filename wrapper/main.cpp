@@ -14,7 +14,7 @@
 #include <vector>
 #include <string>
 #include <dirent.h>
-#include "HSDCLP.h"
+#include "PARSE_ARGS.h"
 #include "HSD.h"
 #ifdef _USE_OPENMP
 #include <omp.h>
@@ -53,15 +53,9 @@ void getTrimmedList(vector<string> &list, const vector<string> &name)
     sort(list.begin(), list.begin() + list.size());
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char **argv)
 {
-    PARSE_ARGS;
-    
-    if (argc == 1)
-    {
-        cout << "Usage: " << argv[0] << " --help" << endl;
-        return EXIT_SUCCESS;
-    }
+    PARSE_ARGS(argc, argv);
     
     // update list files from the directory information
     if (!dirSphere.empty() && listSphere.empty()) getListFile(dirSphere, listSphere, "vtk");// listSphere.erase(listSphere.begin() + 30, listSphere.begin() + listSphere.size());

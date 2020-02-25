@@ -26,9 +26,9 @@ This tools supports N many subjects in theory as long as memory capacity is allo
 The following command line will generate `s?.sphere.reg.vtk`:
 ```
 $ HSD \
-      -s s1.sphere.vtk,s2.sphere.vtk,s3.sphere.vtk \
-      -p s1.curv.txt,s2.curv.txt,s3.curv.txt \
-      -o s1.sphere.reg.vtk,s2.sphere.reg.vtk,s3.sphere.reg.vtk
+      -s s1.sphere.vtk s2.sphere.vtk s3.sphere.vtk \
+      -p s1.curv.txt s2.curv.txt s3.curv.txt \
+      -o s1.sphere.reg.vtk s2.sphere.reg.vtk s3.sphere.reg.vtk
 ```
 To change the degree of spherical harmonics:
 ```
@@ -44,11 +44,11 @@ $ HSD --icomesh <filename>
 ```
 To report spherical harmonics coefficients:
 ```
-$ HSD --writecoeff s1.coeff.txt,s2.coeff.txt,s3.coeff.txt
+$ HSD --writecoeff s1.coeff.txt s2.coeff.txt s3.coeff.txt
 ```
 and to use initial spherical harmonics coefficients:
 ```
-$ HSD -c s1.coeff.txt,s2.coeff.txt,s3.coeff.txt
+$ HSD -c s1.coeff.txt s2.coeff.txt s3.coeff.txt
 ```
 To enable multi-thread support (OpenMP):
 ```
@@ -58,33 +58,33 @@ $ HSD --nThreads <# of threads>
 If multi-feature maps are available, surface registration can be performed in a multi-resolution manner. Once again, we assume N=3 with the following features: <curvature map of inflated surfaces: `s1.inflated.curv.txt`, `s2.inflated.curv.txt`, `s3.inflated.curv.txt`>, <sulcal depth map: `s1.sulc.txt`, `s2.sulc.txt`, `s3.sulc.txt`>, and <curvature map of cortical surfaces: `s1.curv.txt`, `s2.curv.txt`, `s3.curv.txt`>. Let's coregister *inflated.curv* maps first at low resolution `--icosahedron 4`:
 ```
 $ HSD \
-      -s s1.sphere.vtk,s2.sphere.vtk,s3.sphere.vtk \
-      -p s1.inflated.curv.txt,s2.inflated.curv.txt,s3.inflated.curv.txt \
-      -o s1.sphere.reg0.vtk,s2.sphere.reg0.vtk,s3.sphere.reg0.vtk \
+      -s s1.sphere.vtk s2.sphere.vtk s3.sphere.vtk \
+      -p s1.inflated.curv.txt s2.inflated.curv.txt s3.inflated.curv.txt \
+      -o s1.sphere.reg0.vtk s2.sphere.reg0.vtk s3.sphere.reg0.vtk \
       --icosahedron 4
 ```
 The multi-resolution approach is quite straightforward. We can feed the registration results to the next step by increasing the sampling level `--icosahedron 5`:
 ```
 $ HSD \
-      -s s1.sphere.reg0.vtk,s2.sphere.reg0.vtk,s3.sphere.reg0.vtk \
-      -p s1.sulc.txt,s2.sulc.txt,s3.sulc.txt \
-      -o s1.sphere.reg1.vtk,s2.sphere.reg1.vtk,s3.sphere.reg1.vtk \
+      -s s1.sphere.reg0.vtk s2.sphere.reg0.vtk s3.sphere.reg0.vtk \
+      -p s1.sulc.txt s2.sulc.txt s3.sulc.txt \
+      -o s1.sphere.reg1.vtk s2.sphere.reg1.vtk s3.sphere.reg1.vtk \
       --icosahedron 5
 ```
 Let's use the same *sulc* features but higher resolution:
 ```
 $ HSD \
-      -s s1.sphere.reg1.vtk,s2.sphere.reg1.vtk,s3.reg1.sphere.vtk \
-      -p s1.sulc.txt,s2.sulc.txt,s3.sulc.txt \
-      -o s1.sphere.reg2.vtk,s2.sphere.reg2.vtk,s3.sphere.reg2.vtk \
+      -s s1.sphere.reg1.vtk s2.sphere.reg1.vtk s3.reg1.sphere.vtk \
+      -p s1.sulc.txt s2.sulc.txt s3.sulc.txt \
+      -o s1.sphere.reg2.vtk s2.sphere.reg2.vtk s3.sphere.reg2.vtk \
       --icosahedron 6
 ```
 Finally, we coregister all surfaces together using dense features:
 ```
 $ HSD \
-      -s s1.sphere.reg2.vtk,s2.sphere.reg2.vtk,s3.sphere.reg2.vtk \
-      -p s1.curv.txt,s2.curv.txt,s3.curv.txt \
-      -o s1.sphere.reg.vtk,s2.sphere.reg.vtk,s3.sphere.reg.vtk \
+      -s s1.sphere.reg2.vtk s2.sphere.reg2.vtk s3.sphere.reg2.vtk \
+      -p s1.curv.txt s2.curv.txt s3.curv.txt \
+      -o s1.sphere.reg.vtk s2.sphere.reg.vtk s3.sphere.reg.vtk \
       --icosahedron 7
 ```
 >**Note**: You can also create and use spherical harmonics coefficients for each resolution `s1.coff.txt`, `s2.coff.txt`, `s3.coff.txt` with --writecoeff and -c options rather than create and feed deformed spheres (-s and -o). This will save storage and time for file writing.
@@ -111,9 +111,9 @@ $ docker run \
          -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
          --rm ilwoolyu/cmorph:<version> \
          HSD \
-             -s /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
-             -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
-             -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
+             -s /INPUT/s1.sphere.vtk /INPUT/s2.sphere.vtk /INPUT/s3.sphere.vtk \
+             -p /INPUT/s1.curv.txt INPUT/s2.curv.txt /INPUT/s3.curv.txt \
+             -o /OUTPUT/s1.sphere.reg.vtk /OUTPUT/s2.sphere.reg.vtk /OUTPUT/s3.sphere.reg.vtk
 ```
 
 To support cublas (GPU linear solver), type:
@@ -125,9 +125,9 @@ $ docker run \
          -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
          --rm ilwoolyu/cmorph:<version> \
          HSD-cuda \
-             -s /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
-             -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
-             -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
+             -s /INPUT/s1.sphere.vtk /INPUT/s2.sphere.vtk /INPUT/s3.sphere.vtk \
+             -p /INPUT/s1.curv.txt /INPUT/s2.curv.txt /INPUT/s3.curv.txt \
+             -o /OUTPUT/s1.sphere.reg.vtk /OUTPUT/s2.sphere.reg.vtk /OUTPUT/s3.sphere.reg.vtk
 ```
 
 *Docker (> v19.03) supports native GPU devices. The use of NVIDIA Docker is deprecated. Please see [link](https://github.com/NVIDIA/nvidia-docker) for details.*
@@ -139,15 +139,16 @@ $ nvidia-docker run \
          -v <LOCAL_OUTPUT_PATH>:/OUTPUT/ \
          --rm ilwoolyu/cmorph:<version> \
          HSD-cuda \
-             -s /INPUT/s1.sphere.vtk,/INPUT/s2.sphere.vtk,/INPUT/s3.sphere.vtk \
-             -p /INPUT/s1.curv.txt,/INPUT/s2.curv.txt,/INPUT/s3.curv.txt \
-             -o /OUTPUT/s1.sphere.reg.vtk,/OUTPUT/s2.sphere.reg.vtk,/OUTPUT/s3.sphere.reg.vtk
+             -s /INPUT/s1.sphere.vtk /INPUT/s2.sphere.vtk /INPUT/s3.sphere.vtk \
+             -p /INPUT/s1.curv.txt /INPUT/s2.curv.txt /INPUT/s3.curv.txt \
+             -o /OUTPUT/s1.sphere.reg.vtk /OUTPUT/s2.sphere.reg.vtk /OUTPUT/s3.sphere.reg.vtk
 ```
 Please refer to our papers [[1](#ref1),[2](#ref2)] for technical details (theory, parameters, methodological validation, etc.).
 
 ## Requirements for build
 <a href="https://github.com/ilwoolyu/MeshLib">MeshLib (general mesh processing)</a><br />
-<a href="https://github.com/Slicer/SlicerExecutionModel">SlicerExecutionModel (CLI)</a>
+~~<a href="https://github.com/Slicer/SlicerExecutionModel">SlicerExecutionModel (CLI)</a>~~<br />
+*To reduce package dependencies, CLI is now supported by <a href="https://github.com/CLIUtils/CLI11">CLI11</a>. This tool no longer uses SlicerExecutionModel. Consequently, a comma-separated list needs to be space-separated (>= v1.2.6). CLI11 will be automatically installed via CMake.*
 
 ## References
 <ol>
