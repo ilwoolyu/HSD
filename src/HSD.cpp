@@ -130,10 +130,10 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_spharm = new spharm[m_nSubj];	// spharm info
 	m_updated = new bool[m_nSubj];	// AABB tree cache
 	//m_work = new float[m_nSubj * 3 - 1];	// workspace for eigenvalue computation
-	m_work = new double[csize * 3 * csize * 3];	// workspace for inverse matrix
-	m_ipiv = new int[csize * 3 + 1];	// workspace for eigenvalue computation
-	m_Hessian = new double[csize * 3 * csize * 3];
-	m_gradient_new = new double[csize * 3 * 2];
+	m_work = new double[csize * 3 * csize * 3 * m_nSubj];	// workspace for inverse matrix
+	m_ipiv = new int[(csize * 3 + 1) * m_nSubj];	// workspace for eigenvalue computation
+	m_Hessian = new double[csize * 3 * csize * 3 * m_nSubj];
+	m_gradient_new = new double[csize * 3 * 2 * m_nSubj];
 	m_csize = (m_degree + 1) * (m_degree + 1) * m_nSubj; // total # of coefficients
 	m_coeff = new double[m_csize * 3];	// how many coefficients are required: the sum of all possible coefficients
 	m_coeff_prev_step = new double[m_csize * 3];	// the previous coefficients
@@ -180,44 +180,54 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	
 	cout << "Initialzation of subject information\n";
 
-	int id = 0, id_fixed = 0;
-	
+	cout << "-Loading spherical mesh\n";
+	int dot = m_nSubj / 20 + (m_nSubj % 20 != 0);
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
-		cout << "Subject " << subj << " - " << sphere[subj] << endl;
-		
 		// spehre and surface information
-		cout << "-Sphere information\n";
 		m_spharm[subj].sphere = new Mesh();
 		if (sphere != NULL)
 		{
 			m_spharm[subj].sphere->openFile(sphere[subj]);
 			// make sure a unit sphere
 			//m_spharm[subj].sphere->centering();
-			for (int i = 0; i < m_spharm[subj].sphere->nVertex(); i++)
-			{
-				Vertex *v = (Vertex *)m_spharm[subj].sphere->vertex(i);	// vertex information on the sphere
-				const float *v0 = v->fv();
-				Vector V(v0); V.unit();
-				v->setVertex(V.fv());
-			}
 		}
 		else
 		{
 			cout << " Fatal error: No sphere mapping is provided!\n";
 			exit(1);
 		}
-		cout << "--Total vertices: " << m_spharm[subj].sphere->nVertex() << endl;
-		
+		if (subj % dot == 0)
+		{
+			cout << ".";
+			fflush(stdout);
+		}
+	}
+	cout << endl;
+
+	#pragma omp parallel for
+	for (int subj = 0; subj < m_nSubj; subj++)
+	{
+		string log;
+		log += "Subject " + to_string(subj) + " - " + sphere[subj] + "\n";
+		log += "-Sphere information\n";
+		for (int i = 0; i < m_spharm[subj].sphere->nVertex(); i++)
+		{
+			Vertex *v = (Vertex *)m_spharm[subj].sphere->vertex(i);	// vertex information on the sphere
+			const float *v0 = v->fv();
+			Vector V(v0); V.unit();
+			v->setVertex(V.fv());
+		}
+		log += "--Total vertices: " + to_string(m_spharm[subj].sphere->nVertex()) + "\n";
 		// previous spherical harmonic deformation fields
-		cout << "-Spherical harmonics information\n";
+		log += "-Spherical harmonics information\n";
 		initSphericalHarmonics(subj, coeff);
 		
 		// landmarks
 		if (landmark != NULL)
 		{
-			cout << "-Landmark information\n";
-			initLandmarks(subj, landmark);
+			log += "-Landmark information\n";
+			log += initLandmarks(subj, landmark);
 		}
 		
 		// optimal pole and tangent plane
@@ -225,7 +235,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		
 		if (m_nSurfaceProperties > 0)
 		{
-			cout << "-Location information\n";
+			log += "-Location information\n";
 			m_spharm[subj].surf = new Mesh();
 			m_spharm[subj].surf->openFile(surf[subj]);
 		}
@@ -234,27 +244,29 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		if (m_nProperties + m_nSurfaceProperties > 0)
 		{
 			// AABB tree construction for speedup computation
-			cout << "-AABB tree construction\n";
+			log += "-AABB tree reconstruction\n";
 			m_spharm[subj].tree = new AABB_Sphere(m_spharm[subj].sphere);
 		}
 		else m_spharm[subj].tree = NULL;
 		
 		// triangle flipping
-		cout << "-Triangle flipping\n";
 		m_spharm[subj].flip = NULL;
-		initTriangleFlipping(subj, true);
+		log += "-Triangle flipping\n";
+		log += initTriangleFlipping(subj);
 		
 		// area
-		cout << "-Surface area\n";
 		m_spharm[subj].area0 = NULL;
 		m_spharm[subj].area1 = NULL;
-		initArea(subj, true);
+		log += "-Surface area\n";
+		log += initArea(subj);
 		
 		// property information
-		cout << "-Property information\n";
-		initProperties(subj, property, 0);
+		log += "-Property information\n";
+		log += initProperties(subj, property, 0);
+
+		log += "----------\n";
 		
-		cout << "----------" << endl;
+		cout << log;
 	}
 
 	// icosahedron subdivision for evaluation on properties: this generates uniform sampling points over the sphere - m_propertySamples
@@ -507,8 +519,9 @@ void HSD::initTangentPlane(int subj)
 	m_spharm[subj].tan2[0] = tan2[0]; m_spharm[subj].tan2[1] = tan2[1]; m_spharm[subj].tan2[2] = tan2[2];
 }
 
-void HSD::initProperties(int subj, const char **property, int nHeaderLines)
+string HSD::initProperties(int subj, const char **property, int nHeaderLines)
 {
+	string log;
 	int nVertex = m_spharm[subj].sphere->nVertex();	// this is the same as the number of properties
 	int nFace = m_spharm[subj].sphere->nFace();
 	if (m_nProperties + m_nSurfaceProperties > 0)
@@ -532,7 +545,7 @@ void HSD::initProperties(int subj, const char **property, int nHeaderLines)
 	for (int i = 0; i < m_nProperties; i++)	// property information
 	{
 		int index = subj * m_nProperties + i;
-		cout << "\t" << property[index] << endl;
+		log += "\t" + string(property[index]) + "\n";
 		FILE *fp = fopen(property[index], "r");
 		
 		// remove header lines
@@ -571,15 +584,15 @@ void HSD::initProperties(int subj, const char **property, int nHeaderLines)
 	// find the best statistics across subjects
 	for (int i = 0; i < m_nProperties + m_nSurfaceProperties; i++)
 	{
-		cout << "--Property " << i << endl;
+		log += "--Property " + to_string(i) + "\n";
 		m_spharm[subj].meanProperty[i] = Statistics::mean(&m_spharm[subj].property[nVertex * i], nVertex);
 		m_spharm[subj].medianProperty[i] = Statistics::median(&m_spharm[subj].property[nVertex * i], nVertex);
 		m_spharm[subj].maxProperty[i] = Statistics::max(&m_spharm[subj].property[nVertex * i], nVertex);
 		m_spharm[subj].minProperty[i] = Statistics::min(&m_spharm[subj].property[nVertex * i], nVertex);
 		m_spharm[subj].sdevProperty[i] = sqrt(Statistics::var(&m_spharm[subj].property[nVertex * i], nVertex));
-		cout << "---Min/Max: " << m_spharm[subj].minProperty[i] << ", " << m_spharm[subj].maxProperty[i] << endl;
-		cout << "---Mean/Stdev: " << m_spharm[subj].meanProperty[i] << ", " << m_spharm[subj].sdevProperty[i] << endl;
-		cout << "---Median: " << m_spharm[subj].medianProperty[i] << endl;
+		log += "---Min/Max: " + to_string(m_spharm[subj].minProperty[i]) + ", " + to_string(m_spharm[subj].maxProperty[i]) + "\n";
+		log += "---Mean/Stdev: " + to_string(m_spharm[subj].meanProperty[i]) + ", " + to_string(m_spharm[subj].sdevProperty[i]) + "\n";
+		log += "---Median: " + to_string(m_spharm[subj].medianProperty[i]) + "\n";
 	}
 	
 	// normalization - median z-score
@@ -643,14 +656,17 @@ void HSD::initProperties(int subj, const char **property, int nHeaderLines)
 		m_spharm[subj].maxProperty[i] = Statistics::max(&m_spharm[subj].property[nVertex * i], nVertex);
 		m_spharm[subj].minProperty[i] = Statistics::min(&m_spharm[subj].property[nVertex * i], nVertex);
 		m_spharm[subj].sdevProperty[i] = sqrt(Statistics::var(&m_spharm[subj].property[nVertex * i], nVertex));
-		cout << "---Adjusted Min/Max: " << m_spharm[subj].minProperty[i] << ", " << m_spharm[subj].maxProperty[i] << endl;
-		cout << "---Adjusted Mean/Stdev: " << m_spharm[subj].meanProperty[i] << ", " << m_spharm[subj].sdevProperty[i] << endl;
-		cout << "---Adjusted Median: " << m_spharm[subj].medianProperty[i] << endl;
+		log += "---Adjusted Min/Max: " + to_string(m_spharm[subj].minProperty[i]) + ", " + to_string(m_spharm[subj].maxProperty[i]) + "\n";
+		log += "---Adjusted Mean/Stdev: " + to_string(m_spharm[subj].meanProperty[i]) + ", " + to_string(m_spharm[subj].sdevProperty[i]) + "\n";
+		log += "---Adjusted Median: " + to_string(m_spharm[subj].medianProperty[i]) + "\n";
 	}
+
+	return log;
 }
 
-void HSD::initTriangleFlipping(int subj, bool verbose)
+string HSD::initTriangleFlipping(int subj)
 {
+	string log;
 	int nFace = m_spharm[subj].sphere->nFace();
 	if (m_spharm[subj].flip == NULL) m_spharm[subj].flip = new bool[nFace];
 	int nFlips = 0;
@@ -681,16 +697,16 @@ void HSD::initTriangleFlipping(int subj, bool verbose)
 	}
 	m_spharm[subj].neg_area_threshold = neg_area + 1e-5;
 
-	if (verbose)
-	{
-		cout << "--Negative area: " << neg_area << endl;
-		cout << "--Initial flips: " << nInitFlips << endl;
-		cout << "--Adjusted flips: " << nFlips << endl;
-	}
+	log += "--Negative area: " + to_string(neg_area) + "\n";
+	log += "--Initial flips: " + to_string(nInitFlips) + "\n";
+	log += "--Adjusted flips: " + to_string(nFlips) + "\n";
+
+	return log;
 }
 
-void HSD::initArea(int subj, bool verbose)
+string HSD::initArea(int subj)
 {
+	string log;
 	int nVertex = m_spharm[subj].sphere->nVertex();
 	int nFace = m_spharm[subj].sphere->nFace();
 	if (m_spharm[subj].area0 == NULL) m_spharm[subj].area0 = new float[nFace];
@@ -718,12 +734,15 @@ void HSD::initArea(int subj, bool verbose)
 		if (minarea > area) minarea = area;
 		if (maxarea < area) maxarea = area;
 	}
-	if (verbose) cout << "--Min/Max: " << minarea << ", " << maxarea << endl;
+	log += "--Min/Max: " + to_string(minarea) + ", " + to_string(maxarea) + "\n";
+
+	return log;
 }
 
-void HSD::initLandmarks(int subj, const char **landmark)
+string HSD::initLandmarks(int subj, const char **landmark)
 {
-	cout << "\t" << landmark[subj] << endl;
+	string log;
+	log += "\t" + string(landmark[subj]) + "\n";
 	FILE *fp = fopen(landmark[subj], "r");
 	int i = 0;
 	while (!feof(fp))
@@ -751,6 +770,7 @@ void HSD::initLandmarks(int subj, const char **landmark)
 		i++;
 	}
 	fclose(fp);
+	return log;
 }
 
 void HSD::initPairwise(const char *tmpVariance)
@@ -1055,6 +1075,7 @@ void HSD::updateArea(int subj)
 
 void HSD::updateDisplacement(int subj_id, int degree)
 {
+	#pragma omp parallel for
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		if (subj_id != -1 && subj_id != subj) continue;
@@ -1104,7 +1125,7 @@ double HSD::trace(int subj_id)
 	return E;
 }
 
-void HSD::inverse(double *M, int dim)
+void HSD::inverse(double *M, int dim, int *ipiv, double *work)
 {
 	int n = dim;
 	int lwork = n * n;	// dimension of the work array
@@ -1112,21 +1133,22 @@ void HSD::inverse(double *M, int dim)
 	int info;				// information (0 for successful exit)
 	char uplo[] = "L"; // Lower triangle
 	
-	dgetrf_(&n, &n, M, &n, m_ipiv, &info);
-	dgetri_(&n, M, &n, m_ipiv, m_work, &lwork, &info);
+	dgetrf_(&n, &n, M, &n, ipiv, &info);
+	dgetri_(&n, M, &n, ipiv, work, &lwork, &info);
 	/*dsytrf_( uplo, &n, M, &lda, m_ipiv, m_work, &lwork, &info );
 	dsytri_( uplo, &n, M, &lda, m_ipiv, m_work, &info );*/
 }
 
-void HSD::linear(double *A, double *b, int dim)
+void HSD::linear(double *A, double *b, int dim, int *ipiv, double *work)
 {
 	int n = dim;
 	int lwork = n * n;	// dimension of the work array
 	int info;				// information (0 for successful exit)
 	char uplo[] = "L"; // Lower triangle
 	
-	dposv_(uplo, &n, &n, A, &n, b, &n, &info);
-	//dsysv_(uplo, &n, &n, A, &n, m_ipiv, b, &n, m_work, &lwork, &info);
+	//dposv_(uplo, &n, &n, A, &n, b, &n, &info);
+	dgetrf_(&n, &n, A, &n, ipiv, &info);
+	dsysv_(uplo, &n, &n, A, &n, ipiv, b, &n, work, &lwork, &info);
 }
 
 void HSD::ATB(double *A, int nr_rows_A, int nr_cols_A, double *B, int nr_cols_B, double *C)
@@ -1142,15 +1164,14 @@ void HSD::ATB(double *A, int nr_rows_A, int nr_cols_A, double *B, int nr_cols_B,
 void HSD::ATDA(double *A, double *D, int nr_rows_A, int nr_cols_A, double *B)
 {
 	double *DA = &A[m_nMaxVertex * 3 * (m_degree + 1) * (m_degree + 1)];
+	memset(DA, 0, sizeof(double) * nr_rows_A * nr_cols_A);
+	#pragma omp parallel for
 	for (int row = 0; row < nr_rows_A; row++)
+		cblas_daxpy(nr_cols_A, D[row], &A[row * nr_cols_A], 1, &DA[row * nr_cols_A], 1);
+	/*for (int row = 0; row < nr_rows_A; row++)
 		for (int col = 0; col < nr_cols_A; col++)
-			DA[row * nr_cols_A + col] = D[row] * A[row * nr_cols_A + col];
+			DA[row * nr_cols_A + col] = D[row] * A[row * nr_cols_A + col];*/
 
-	int m = nr_cols_A, n = nr_cols_A, k = nr_rows_A;
-	int lda = m,ldb = n,ldc = m;
-	double alpha = 1;
-	double beta = 0;
-	
 	ATB(A, nr_rows_A, nr_cols_A, DA, nr_cols_A, B);
 }
 
@@ -1423,6 +1444,7 @@ void HSD::minGradientDescent(int deg_beg, int deg_end, int subj_id)
 				norm += m_gradient[i] * m_gradient[i];
 			norm = sqrt(norm);
 		}
+		#pragma omp parallel for
 		for (int i = 0; i < m_nSubj; i++)
 		{
 			if (m_spharm[i].step == 0) continue;
@@ -1512,17 +1534,18 @@ void HSD::updateGradient(int deg_beg, int deg_end, double lambda, int subj_id)
 	int size = n - n0;
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject have the same number
 	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
-	
+	int csize = (m_degree + 1) * (m_degree + 1);
+
 	memset(m_gradient, 0, sizeof(double) * m_csize * 3);
 
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		if (m_spharm[subj].fixed) continue;
 		if (m_spharm[subj].step == 0) continue;
-		memset(m_Hessian, 0, sizeof(double) * size * size * 3 * 3);
+		memset(&m_Hessian[csize * 3 * csize * 3 * subj], 0, sizeof(double) * size * size * 3 * 3);
 		// update landmark
 		if (nLandmark > 0) updateGradientLandmark(deg_beg, deg_end, subj);
-	
+
 		// update properties
 		if (nSamples > 0)
 		{
@@ -1532,7 +1555,7 @@ void HSD::updateGradient(int deg_beg, int deg_end, double lambda, int subj_id)
 			updateGradientProperties(deg_beg, deg_end, subj);
 #endif
 		}
-		
+
 		if (m_degree_inc > 0 && m_icosahedron >= m_fine_res)
 		{
 #ifdef _USE_CUDA_BLAS
@@ -1541,7 +1564,12 @@ void HSD::updateGradient(int deg_beg, int deg_end, double lambda, int subj_id)
 			updateGradientDisplacement(deg_beg, deg_end, subj);
 #endif
 		}
-		
+	}
+	#pragma omp parallel for
+	for (int subj = 0; subj < m_nSubj; subj++)
+	{
+		if (m_spharm[subj].fixed) continue;
+		if (m_spharm[subj].step == 0) continue;
 		if (m_icosahedron >= m_fine_res)
 			updateNewGradient(deg_beg, deg_end, lambda, subj);
 	}
@@ -1552,6 +1580,7 @@ void HSD::updateHessian(int deg_beg, int deg_end, int nSamples, int subj)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
+	int csize = (m_degree + 1) * (m_degree + 1);
 
 	double *M = new double[size * 3 * size * 3];
 #ifdef _USE_CUDA_BLAS
@@ -1559,7 +1588,7 @@ void HSD::updateHessian(int deg_beg, int deg_end, int nSamples, int subj)
 #else
 	ATDA(m_gradient_raw, m_gradient_diag, nSamples, size * 3, M);
 #endif
-	for (int i = 0; i < size * 3 * size * 3; i++) m_Hessian[i] += M[i];
+	for (int i = 0; i < size * 3 * size * 3; i++) m_Hessian[csize * 3 * csize * 3 * subj + i] += M[i];
 	delete [] M;
 }
 
@@ -1568,8 +1597,10 @@ void HSD::updateNewGradient(int deg_beg, int deg_end, double lambda, int subj)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
-	double *M = m_Hessian;
-	double *G = m_gradient_new;
+	int csize = (m_degree + 1) * (m_degree + 1);
+
+	double *M = &m_Hessian[csize * 3 * csize * 3 * subj];
+	double *G = &m_gradient_new[csize * 3 * 2 * subj];
 	//double alpha = (m_icosahedron >= m_fine_res && deg_beg == 0 && deg_end == m_degree) ? 0.001 / exp(nIter): 0;
 	double alpha = (m_icosahedron >= m_fine_res && deg_beg == 0 && deg_end == m_degree) ? 0.001 / exp(nSuccessIter): 0;
 	int i = 0;
@@ -1578,13 +1609,10 @@ void HSD::updateNewGradient(int deg_beg, int deg_end, double lambda, int subj)
 		else M[size * 3 * j + i] *= (1 + lambda);
 
 	// Ax = b
-	/*for (int deg1 = 0; deg1 < 3; deg1++)
-		for (int j = 0; j < size; j++)
-			G[deg1 * size + j] = *m_spharm[subj].gradient[deg1 * (m_degree + 1) * (m_degree + 1) + n0 + j];
-	linear(M, G, size * 3);*/
+	//linear(M, G, size * 3, &m_ipiv[(csize * 3 + 1) * subj], &m_work[csize * 3 * csize * 3 * subj]);
 
 	// inv(A) * b
-	inverse(M, size * 3);
+	inverse(M, size * 3, &m_ipiv[(csize * 3 + 1) * subj], &m_work[csize * 3 * csize * 3 * subj]);
 
 	memcpy(G, &m_spharm[subj].gradient[n0], sizeof(double) * size);
 	memcpy(&G[size], &m_spharm[subj].gradient[(m_degree + 1) * (m_degree + 1) + n0], sizeof(double) * size);
@@ -1603,13 +1631,15 @@ void HSD::updateGradientLandmark(int deg_beg, int deg_end, int subj_id)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
-	
+	int csize = (m_degree + 1) * (m_degree + 1);
+
 	double normalization = 1.0 / (double)((m_nSubj - 1) * nLandmark);
 	
 	// landmark gradient
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		if (subj_id != -1 && subj_id != subj) continue;
+		#pragma omp parallel for
 		for (int i = 0; i < nLandmark; i++)
 		{
 			// x_bar
@@ -1703,18 +1733,26 @@ void HSD::updateGradientLandmark(int deg_beg, int deg_end, int subj_id)
 				if (m_icosahedron >= m_fine_res) m_gradient_diag[i] = normalization;
 				//cout << "dxdg: " << dxdg << " dxdu1: " << dxdu1 << " dxdu2: " << dxdu1 << endl;
 			}
-			
 			for (int j = n0; j < n; j++)
 			{
-				m_spharm[subj].gradient[j] += Y[j] * dxdg * dEdx * normalization;
-				m_spharm[subj].gradient[(m_degree + 1) * (m_degree + 1) + j] += Y[j] * dxdu1 * dEdx * normalization;
-				m_spharm[subj].gradient[2 * (m_degree + 1) * (m_degree + 1) + j] += Y[j] * dxdu2 * dEdx * normalization;
+				m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + j - n0] = Y[j] * dxdg * dEdx * normalization;
+				m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size + j - n0] = Y[j] * dxdu1 * dEdx * normalization;
+				m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size * 2 + j - n0] = Y[j] * dxdu2 * dEdx * normalization;
 				if (m_icosahedron >= m_fine_res)
 				{
 					m_gradient_raw[size * 3 * i + j - n0] = Y[j] * dxdg;
 					m_gradient_raw[size * 3 * i + size + j - n0] = Y[j] * dxdu1;
 					m_gradient_raw[size * 3 * i + size * 2 + j - n0] = Y[j] * dxdu2;
 				}
+			}
+		}
+		for (int i = 0; i < nLandmark; i++)
+		{
+			for (int j = n0; j < n; j++)
+			{
+				m_spharm[subj].gradient[j] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + j - n0];
+				m_spharm[subj].gradient[(m_degree + 1) * (m_degree + 1) + j] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size + j - n0];
+				m_spharm[subj].gradient[2 * (m_degree + 1) * (m_degree + 1) + j] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size * 2 + j - n0];
 			}
 		}
 		if (m_icosahedron >= m_fine_res)
@@ -1731,6 +1769,7 @@ void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
+	int csize = (m_degree + 1) * (m_degree + 1);
 	double normalization = m_eta * 1.0 / (double)(((m_nProperties + m_nSurfaceProperties) * nSamples) * m_nSubj);
 	
 	int k = 0;
@@ -1744,7 +1783,7 @@ void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id)
 	const double *variance = &m_variance[m_nSamples * k];
 	const float *property = &m_spharm[subj].property[nVertex * k];
 	const double *mean = &m_mean[m_nSamples * k];
-	Gradient::updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, m_Hessian, m_icosahedron >= m_fine_res);
+	Gradient::updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res);
 	
 	delete [] vertex;
 	delete [] face;
@@ -1759,7 +1798,8 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
-	
+	int csize = (m_degree + 1) * (m_degree + 1);
+
 	const double normalization = m_eta * 1.0 / (double)(((m_nProperties + m_nSurfaceProperties) * nSamples) * m_nSubj);
 	
 	double *grad = new double[size * 3];
@@ -1770,7 +1810,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 		for (int subj = 0; subj < m_nSubj; subj++)
 		{
 			if (subj_id != -1 && subj_id != subj) continue;
-				
+			#pragma omp parallel for
 			for (int i = 0; i < nSamples; i++)
 			{
 				// m_bar
@@ -1896,15 +1936,24 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 				for (int j = n0; j < n; j++)
 				{
 					double Y = (Y1[j] * cY[0] + Y2[j] * cY[1] + Y3[j] * cY[2]);
-					grad[j - n0] += Y * dxdg * dEdx / var;
-					grad[size + j - n0] += Y * dxdu1 * dEdx / var;
-					grad[size * 2 + j - n0] += Y * dxdu2 * dEdx / var;
+					m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + j - n0] = Y * dxdg * dEdx / var;
+					m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size + j - n0] = Y * dxdu1 * dEdx / var;
+					m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size * 2 + j - n0] = Y * dxdu2 * dEdx / var;
 					if (m_icosahedron >= m_fine_res)
 					{
 						m_gradient_raw[size * 3 * i + j - n0] = Y * dxdg;
 						m_gradient_raw[size * 3 * i + size + j - n0] = Y * dxdu1;
 						m_gradient_raw[size * 3 * i + size * 2 + j - n0] = Y * dxdu2;
 					}
+				}
+			}
+			for (int i = 0; i < nSamples; i++)
+			{
+				for (int j = n0; j < n; j++)
+				{
+					grad[j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + j - n0];
+					grad[size + j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size + j - n0];
+					grad[size * 2 + j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size * 2 + j - n0];
 				}
 			}
 			for (int j = n0; j < n; j++)
@@ -1928,6 +1977,8 @@ void HSD::updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj_id)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
+	int csize = (m_degree + 1) * (m_degree + 1);
+
 	int subj = subj_id;
 	int nVertex = m_spharm[subj].sphere->nVertex();
 	
@@ -1936,7 +1987,7 @@ void HSD::updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj_id)
 	float *vertex0 = new float[nVertex * 3]; for (int i = 0; i < nVertex; i++) memcpy(&vertex0[i * 3], m_spharm[subj].vertex[i]->p0, sizeof(float) * 3);
 	float *vertex1 = new float[nVertex * 3]; for (int i = 0; i < nVertex; i++) memcpy(&vertex1[i * 3], m_spharm[subj].sphere->vertex(i)->fv(), sizeof(float) * 3);
 
-	Gradient::updateGradientDsiplacement(vertex0, vertex1, nVertex, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].gradient, m_Hessian, m_icosahedron >= m_fine_res);
+	Gradient::updateGradientDsiplacement(vertex0, vertex1, nVertex, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res);
 	
 	delete [] vertex0;
 	delete [] vertex1;
@@ -1950,7 +2001,8 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
-	
+	int csize = (m_degree + 1) * (m_degree + 1);
+
 	double normalization = m_lambda2 / (double)(m_nSubj);
 	//if (subj_id != -1) normalization = m_lambda2;
 
@@ -1962,6 +2014,7 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 	{
 		if (subj_id != -1 && subj_id != subj) continue;
 		int nVertex = m_spharm[subj].sphere->nVertex();
+		#pragma omp parallel for
 		for (int i = 0; i < nVertex; i++)
 		{
 			//const float *x_bar = m_spharm[subj].vertex[i]->p0;
@@ -2054,15 +2107,24 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 			
 			for (int j = n0; j < n; j++)
 			{
-				grad[j - n0] += Y[j] * dxdg * dEdx;
-				grad[size + j - n0] += Y[j] * dxdu1 * dEdx;
-				grad[size * 2 + j - n0] += Y[j] * dxdu2 * dEdx;
+				m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + j - n0] = Y[j] * dxdg * dEdx;
+				m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size + j - n0] = Y[j] * dxdu1 * dEdx;
+				m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size * 2 + j - n0] = Y[j] * dxdu2 * dEdx;
 				if (m_icosahedron >= m_fine_res)
 				{
 					m_gradient_raw[size * 3 * i + j - n0] = Y[j] * dxdg;
 					m_gradient_raw[size * 3 * i + size + j - n0] = Y[j] * dxdu1;
 					m_gradient_raw[size * 3 * i + size * 2 + j - n0] = Y[j] * dxdu2;
 				}
+			}
+		}
+		for (int i = 0; i < nVertex; i++)
+		{
+			for (int j = n0; j < n; j++)
+			{
+				grad[j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + j - n0];
+				grad[size + j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size + j - n0];
+				grad[size * 2 + j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size * 2 + j - n0];
 			}
 		}
 		for (int j = n0; j < n; j++)

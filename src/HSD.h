@@ -35,11 +35,11 @@ private:
 	// class members for initilaization
 	void init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree = 3, const bool *fixedSubj = NULL, const char *tmpVariance = NULL, const char *ico_mesh = NULL);
 	void initSphericalHarmonics(int subj, const char **coeff);
-	void initTriangleFlipping(int subj, bool verbose = false);
-	void initProperties(int subj, const char **property, int nHeaderLines);
-	void initLandmarks(int subj, const char **landmark);
+	string initTriangleFlipping(int subj);
+	string initProperties(int subj, const char **property, int nHeaderLines);
+	string initLandmarks(int subj, const char **landmark);
 	void initTangentPlane(int subj);
-	void initArea(int subj, bool verbose = false);
+	string initArea(int subj);
 	void initPairwise(const char *tmpVariance);
 	void guessInitCoeff(void);
 	int icosahedron(int degree, Mesh *mesh);
@@ -59,8 +59,8 @@ private:
 	void updatePropertyStats(void);
 	void updateArea(int subj);
 	void updateDisplacement(int subj_id = -1, int degree = 0);
-	void inverse(double *M, int dim);
-	void linear(double *A, double *b, int dim);
+	void inverse(double *M, int dim, int *ipiv, double *work);
+	void linear(double *A, double *b, int dim, int *ipiv, double *work);
 	void ATDA(double *A, double *D, int nr_rows_A, int nr_cols_A, double *B);
 	void ATB(double *A, int nr_rows_A, int nr_cols_A, double *B, int nr_cols_B, double *C);
 	void minGradientDescent(int deg_beg, int deg_end, int subj = -1);
@@ -135,6 +135,7 @@ private:
 	int m_nQuerySamples;
 	int m_fine_res;
 	int m_nMaxVertex;
+	int m_nThreads;
 	
 	double *m_coeff;
 	double *m_coeff_prev_step;	// previous coefficients

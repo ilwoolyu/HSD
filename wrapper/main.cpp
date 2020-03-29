@@ -195,10 +195,10 @@ int main(int argc, char **argv)
     }
 	omp_set_num_threads(nThreads);
 #endif
-  
+
     HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess, icomesh);
     hsd.run();
-    
+
     // delete memory allocation
     delete [] property;
     delete [] sphere;
@@ -209,6 +209,6 @@ int main(int argc, char **argv)
     delete [] surf;
     delete [] weight;
     delete [] fixedSubj;
-    
+
     return EXIT_SUCCESS;
 }
