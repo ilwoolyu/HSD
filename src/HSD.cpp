@@ -2,7 +2,7 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: Jan 2020
+*	Update: Mar 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -74,12 +74,14 @@ HSD::~HSD(void)
 	delete [] m_work;
 	delete [] m_ipiv;
 	delete [] m_Hessian;
+	delete [] m_Hessian_work;
 	delete [] m_gradient_new;
 	delete [] m_coeff;
 	delete [] m_coeff_prev_step;
 	delete [] m_gradient;
 	delete [] m_gradient_raw;
 	delete [] m_gradient_diag;
+	delete [] m_gradient_work;
 	delete [] m_mean;
 	delete [] m_variance;
 	delete [] m_pole;
@@ -130,10 +132,20 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_spharm = new spharm[m_nSubj];	// spharm info
 	m_updated = new bool[m_nSubj];	// AABB tree cache
 	//m_work = new float[m_nSubj * 3 - 1];	// workspace for eigenvalue computation
-	m_work = new double[csize * 3 * csize * 3 * m_nSubj];	// workspace for inverse matrix
-	m_ipiv = new int[(csize * 3 + 1) * m_nSubj];	// workspace for eigenvalue computation
+#ifdef _USE_SYSV
+	m_work = new double[64 * csize * 3 * m_nSubj];	// workspace
+	m_ipiv = new int[csize * 3 * m_nSubj];	// workspace
+#else
+	m_work = new double[csize * 3 * csize * 3 * m_nSubj];	// workspace
+	m_ipiv = new int[(csize * 3 + 1) * m_nSubj];	// workspace
+#endif
 	m_Hessian = new double[csize * 3 * csize * 3 * m_nSubj];
+	m_Hessian_work = new double[csize * 3 * csize * 3];
+#ifdef _USE_SYSV
+	m_gradient_new = new double[csize * 3 * m_nSubj];
+#else
 	m_gradient_new = new double[csize * 3 * 2 * m_nSubj];
+#endif
 	m_csize = (m_degree + 1) * (m_degree + 1) * m_nSubj; // total # of coefficients
 	m_coeff = new double[m_csize * 3];	// how many coefficients are required: the sum of all possible coefficients
 	m_coeff_prev_step = new double[m_csize * 3];	// the previous coefficients
@@ -377,6 +389,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	}
 	m_gradient_raw = new double[m_nMaxVertex * 3 * csize * 2];	// work space for jacobian
 	m_gradient_diag = new double[m_nMaxVertex];	// work space for jacobian
+	m_gradient_work = new double[csize * 3];
 
 	cout << "Feature vector creation\n";
 
@@ -1125,6 +1138,24 @@ double HSD::trace(int subj_id)
 	return E;
 }
 
+#ifdef _USE_SYSV
+void HSD::linear(double *A, double *b, int dim, int *ipiv, double *work)
+{
+	int n = dim;
+	int nrhs = 1;
+	int lwork = -1;	// dimension of the work array
+	int info;			// information (0 for successful exit)
+	int lda = n;
+	int ldb = n;
+	char uplo = 'L'; // Lower triangle
+	
+	//dposv_(uplo, &n, &n, A, &n, b, &n, &info);
+	//dgetrf_(&n, &n, A, &n, ipiv, &info);
+	dsysv_(&uplo, &n, &nrhs, A, &lda, ipiv, b, &ldb, work, &lwork, &info);
+	lwork = min((int)work[0], (m_degree + 1) * (m_degree + 1) * 3 * 64);
+	dsysv_(&uplo, &n, &nrhs, A, &lda, ipiv, b, &ldb, work, &lwork, &info);
+}
+#else
 void HSD::inverse(double *M, int dim, int *ipiv, double *work)
 {
 	int n = dim;
@@ -1135,21 +1166,10 @@ void HSD::inverse(double *M, int dim, int *ipiv, double *work)
 	
 	dgetrf_(&n, &n, M, &n, ipiv, &info);
 	dgetri_(&n, M, &n, ipiv, work, &lwork, &info);
-	/*dsytrf_( uplo, &n, M, &lda, m_ipiv, m_work, &lwork, &info );
-	dsytri_( uplo, &n, M, &lda, m_ipiv, m_work, &info );*/
+	/*dsytrf_( uplo, &n, M, &lda, &ipiv, &work, &lwork, &info );
+	dsytri_( uplo, &n, M, &lda, &ipiv, &work, &info );*/
 }
-
-void HSD::linear(double *A, double *b, int dim, int *ipiv, double *work)
-{
-	int n = dim;
-	int lwork = n * n;	// dimension of the work array
-	int info;				// information (0 for successful exit)
-	char uplo[] = "L"; // Lower triangle
-	
-	//dposv_(uplo, &n, &n, A, &n, b, &n, &info);
-	dgetrf_(&n, &n, A, &n, ipiv, &info);
-	dsysv_(uplo, &n, &n, A, &n, ipiv, b, &n, work, &lwork, &info);
-}
+#endif
 
 void HSD::ATB(double *A, int nr_rows_A, int nr_cols_A, double *B, int nr_cols_B, double *C)
 {
@@ -1165,7 +1185,7 @@ void HSD::ATDA(double *A, double *D, int nr_rows_A, int nr_cols_A, double *B)
 {
 	double *DA = &A[m_nMaxVertex * 3 * (m_degree + 1) * (m_degree + 1)];
 	memset(DA, 0, sizeof(double) * nr_rows_A * nr_cols_A);
-	#pragma omp parallel for
+
 	for (int row = 0; row < nr_rows_A; row++)
 		cblas_daxpy(nr_cols_A, D[row], &A[row * nr_cols_A], 1, &DA[row * nr_cols_A], 1);
 	/*for (int row = 0; row < nr_rows_A; row++)
@@ -1582,14 +1602,13 @@ void HSD::updateHessian(int deg_beg, int deg_end, int nSamples, int subj)
 	int size = n - n0;
 	int csize = (m_degree + 1) * (m_degree + 1);
 
-	double *M = new double[size * 3 * size * 3];
+	double *M = m_Hessian_work;
 #ifdef _USE_CUDA_BLAS
 	Gradient::ATDA(m_gradient_raw, m_gradient_diag, nSamples, size * 3, M);
 #else
 	ATDA(m_gradient_raw, m_gradient_diag, nSamples, size * 3, M);
 #endif
 	for (int i = 0; i < size * 3 * size * 3; i++) m_Hessian[csize * 3 * csize * 3 * subj + i] += M[i];
-	delete [] M;
 }
 
 void HSD::updateNewGradient(int deg_beg, int deg_end, double lambda, int subj)
@@ -1599,29 +1618,38 @@ void HSD::updateNewGradient(int deg_beg, int deg_end, double lambda, int subj)
 	int size = n - n0;
 	int csize = (m_degree + 1) * (m_degree + 1);
 
-	double *M = &m_Hessian[csize * 3 * csize * 3 * subj];
+#ifdef _USE_SYSV
+	double *G = &m_gradient_new[csize * 3 * subj];
+#else
 	double *G = &m_gradient_new[csize * 3 * 2 * subj];
+#endif
+
 	//double alpha = (m_icosahedron >= m_fine_res && deg_beg == 0 && deg_end == m_degree) ? 0.001 / exp(nIter): 0;
 	double alpha = (m_icosahedron >= m_fine_res && deg_beg == 0 && deg_end == m_degree) ? 0.001 / exp(nSuccessIter): 0;
-	int i = 0;
-	for (int j = 0; j < size * 3; j++, i++)
-		if (alpha != 0) M[size * 3 * j + i] += M[size * 3 * j + i] * lambda + alpha;
-		else M[size * 3 * j + i] *= (1 + lambda);
-
-	// Ax = b
-	//linear(M, G, size * 3, &m_ipiv[(csize * 3 + 1) * subj], &m_work[csize * 3 * csize * 3 * subj]);
-
-	// inv(A) * b
-	inverse(M, size * 3, &m_ipiv[(csize * 3 + 1) * subj], &m_work[csize * 3 * csize * 3 * subj]);
+	double *M = &m_Hessian[csize * 3 * csize * 3 * subj];
+	for (int i = 0; i < size * 3; i++)
+		if (alpha != 0) M[size * 3 * i + i] += M[size * 3 * i + i] * lambda + alpha;
+		else M[size * 3 * i + i] *= (1 + lambda);
 
 	memcpy(G, &m_spharm[subj].gradient[n0], sizeof(double) * size);
 	memcpy(&G[size], &m_spharm[subj].gradient[(m_degree + 1) * (m_degree + 1) + n0], sizeof(double) * size);
 	memcpy(&G[size * 2], &m_spharm[subj].gradient[2 * (m_degree + 1) * (m_degree + 1) + n0], sizeof(double) * size);
-	//Gradient::ATB(M, size * 3, size * 3, G, 1, G);
+
+#ifdef _USE_SYSV
+	// Ax = b
+	linear(M, G, size * 3, &m_ipiv[(csize * 3) * subj], &m_work[64 * csize * 3 * subj]);
+	memcpy(&m_spharm[subj].gradient[n0], &G[size * 0], sizeof(double) * size);
+	memcpy(&m_spharm[subj].gradient[(m_degree + 1) * (m_degree + 1) + n0], &G[size * 1], sizeof(double) * size);
+	memcpy(&m_spharm[subj].gradient[2 * (m_degree + 1) * (m_degree + 1) + n0], &G[size * 2], sizeof(double) * size);
+#else
+	// inv(A) * b
+	inverse(M, size * 3, &m_ipiv[(csize * 3 + 1) * subj], &m_work[csize * 3 * csize * 3 * subj]);
+	//Gradient::ATB(M, size * 3, size * 3, G, 1, &G[size * 3]);
 	ATB(M, size * 3, size * 3, G, 1, &G[size * 3]);
 	memcpy(&m_spharm[subj].gradient[n0], &G[size * 3], sizeof(double) * size);
 	memcpy(&m_spharm[subj].gradient[(m_degree + 1) * (m_degree + 1) + n0], &G[size * 4], sizeof(double) * size);
 	memcpy(&m_spharm[subj].gradient[2 * (m_degree + 1) * (m_degree + 1) + n0], &G[size * 5], sizeof(double) * size);
+#endif
 }
 
 void HSD::updateGradientLandmark(int deg_beg, int deg_end, int subj_id)
@@ -1802,7 +1830,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 
 	const double normalization = m_eta * 1.0 / (double)(((m_nProperties + m_nSurfaceProperties) * nSamples) * m_nSubj);
 	
-	double *grad = new double[size * 3];
+	double *grad = m_gradient_work;
 	memset(grad, 0, sizeof(double) * size * 3);
 
 	for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
@@ -1966,7 +1994,6 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 				updateHessian(deg_beg, deg_end, m_nSamples, subj);
 		}
 	}
-	delete [] grad;
 }
 
 #ifdef _USE_CUDA_BLAS
@@ -2006,7 +2033,7 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 	double normalization = m_lambda2 / (double)(m_nSubj);
 	//if (subj_id != -1) normalization = m_lambda2;
 
-	double *grad = new double[size * 3];
+	double *grad = m_gradient_work;
 	memset(grad, 0, sizeof(double) * size * 3);
 	
 	// displacement gradient
@@ -2136,7 +2163,6 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 		if (m_icosahedron >= m_fine_res)
 			updateHessian(deg_beg, deg_end, nVertex, subj);
 	}
-	delete [] grad;
 }
 
 void HSD::guessInitCoeff(void)

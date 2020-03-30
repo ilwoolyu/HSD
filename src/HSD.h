@@ -170,10 +170,13 @@ private:
 	float *m_feature_weight;
 	float *m_pole;
 	float *m_Tbasis;
-	int *m_ipiv;	// for lapack inverse matrix
-	double *m_work;	// for lapack inverse matrix
+	int *m_ipiv;	// for lapack work space
+	double *m_work;	// for lapack work space
 	double *m_Hessian;
+	double *m_Hessian_work;
 	double *m_gradient_new;
+	double *m_gradient_work;
+
 	// tic
 	int nIter;
 	int nSuccessIter;

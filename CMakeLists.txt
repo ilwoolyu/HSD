@@ -4,7 +4,7 @@ project(HSD)
 
 set(HSD_VERSION_MAJOR 1)
 set(HSD_VERSION_MINOR 2)
-set(HSD_VERSION_PATCH 7)
+set(HSD_VERSION_PATCH 8)
 set(HSD_VERSION
 ${HSD_VERSION_MAJOR}.${HSD_VERSION_MINOR}.${HSD_VERSION_PATCH})
 
@@ -26,7 +26,7 @@ find_package(OpenMP QUIET)
 
 # environmental variables
 if (CUDA_FOUND)
-	option(ENABLE_CUDA_BLAS "Enable CUDA BLAS for fast Levenberg-Marquardt optimization" ${CUDA_FOUND})
+	option(ENABLE_CUDA_BLAS "Enable CUDA BLAS for fast Levenberg-Marquardt optimization." ${CUDA_FOUND})
 endif()
 
 if (ENABLE_CUDA_BLAS)

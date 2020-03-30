@@ -16,6 +16,7 @@
 #include <dirent.h>
 #include "PARSE_ARGS.h"
 #include "HSD.h"
+#include <cblas.h>
 #ifdef _USE_OPENMP
 #include <omp.h>
 #endif
@@ -194,6 +195,7 @@ int main(int argc, char **argv)
         nThreads = (env != NULL) ? max(atoi(env), 1) : 1;
     }
 	omp_set_num_threads(nThreads);
+	openblas_set_num_threads(nThreads);
 #endif
 
     HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess, icomesh);
