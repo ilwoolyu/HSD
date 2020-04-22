@@ -2,7 +2,7 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: Mar 2020
+*	Update: Apr 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -14,7 +14,6 @@
 #include <lapacke.h>
 #include <cblas.h>
 #include "HSD.h"
-#include "cuda/grad.h"
 #include "SphericalHarmonics.h"
 #include "bobyqa.h"
 
@@ -41,7 +40,7 @@ HSD::HSD(void)
 	m_multi_res = true;
 }
 
-HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess, const char *ico_mesh)
+HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess, const char *ico_mesh, int nCThreads)
 {
 	m_maxIter = maxIter;
 	m_nSubj = nSubj;
@@ -62,46 +61,71 @@ HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties,
 	m_icosahedron = icosahedron;
 	m_pairwise = false;
 	m_multi_res = true;
-	init(sphere, property, weight, landmark, weightLoc, coeff, surf, icosahedron, fixedSubj, tmpVariance, ico_mesh);
+	init(sphere, property, weight, landmark, weightLoc, coeff, surf, icosahedron, fixedSubj, tmpVariance, ico_mesh, nCThreads);
 }
 
 HSD::~HSD(void)
 {
 	delete [] m_cov;
 	delete [] m_feature_weight;
-	delete [] m_feature;
 	delete [] m_updated;
 	delete [] m_work;
 	delete [] m_ipiv;
-	delete [] m_Hessian;
 	delete [] m_Hessian_work;
 	delete [] m_gradient_new;
-	delete [] m_coeff;
-	delete [] m_coeff_prev_step;
-	delete [] m_gradient;
+#ifdef _USE_CUDA_BLAS
+	for (int i = 0; i < m_nCThreads; i++)
+		delete m_cuda_grad[i];
+	delete [] m_cuda_grad;
+	cudaFreeHost(m_feature);
+	cudaFreeHost(m_mean);
+	cudaFreeHost(m_variance);
+	cudaFreeHost(m_coeff);
+	cudaFreeHost(m_coeff_prev_step);
+	cudaFreeHost(m_gradient);
+	cudaFreeHost(m_pole);
+	cudaFreeHost(m_Tbasis);
+	cudaFreeHost(m_Hessian);
+	cudaFreeHost(m_propertySamples_pinned);
+#else
+	delete [] m_feature;
 	delete [] m_gradient_raw;
 	delete [] m_gradient_diag;
 	delete [] m_gradient_work;
 	delete [] m_mean;
 	delete [] m_variance;
+	delete [] m_coeff;
+	delete [] m_coeff_prev_step;
+	delete [] m_gradient;
 	delete [] m_pole;
 	delete [] m_Tbasis;
+	delete [] m_Hessian;
+#endif
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		delete m_spharm[subj].tree;
 		delete m_spharm[subj].surf;
 		delete m_spharm[subj].sphere;
-		delete [] m_spharm[subj].Y;
-		delete [] m_spharm[subj].tree_cache;
 		delete [] m_spharm[subj].meanProperty;
 		delete [] m_spharm[subj].medianProperty;
 		delete [] m_spharm[subj].maxProperty;
 		delete [] m_spharm[subj].minProperty;
 		delete [] m_spharm[subj].sdevProperty;
-		delete [] m_spharm[subj].property;
 		delete [] m_spharm[subj].flip;
 		delete [] m_spharm[subj].area0;
 		delete [] m_spharm[subj].area1;
+#ifdef _USE_CUDA_BLAS
+		cudaFreeHost(m_spharm[subj].tree_cache);
+		cudaFreeHost(m_spharm[subj].vertex0);
+		cudaFreeHost(m_spharm[subj].vertex1);
+		cudaFreeHost(m_spharm[subj].face);
+		cudaFreeHost(m_spharm[subj].Y);
+		cudaFreeHost(m_spharm[subj].property);
+#else
+		delete [] m_spharm[subj].tree_cache;
+		delete [] m_spharm[subj].property;
+		delete [] m_spharm[subj].Y;
+#endif
 	}
 	delete [] m_spharm;
 }
@@ -126,7 +150,7 @@ void HSD::run(void)
 	cout << "All done!\n";
 }
 
-void HSD::init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree, const bool *fixedSubj, const char *tmpVariance, const char *ico_mesh)
+void HSD::init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree, const bool *fixedSubj, const char *tmpVariance, const char *ico_mesh, int nCThreads)
 {
 	int csize = (m_degree + 1) * (m_degree + 1);
 	m_spharm = new spharm[m_nSubj];	// spharm info
@@ -139,7 +163,19 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_work = new double[csize * 3 * csize * 3 * m_nSubj];	// workspace
 	m_ipiv = new int[(csize * 3 + 1) * m_nSubj];	// workspace
 #endif
+#ifdef _USE_CUDA_BLAS
+	cudaError_t status;
+#endif
+#ifdef _USE_CUDA_BLAS
+	status = cudaMallocHost((void**)&m_Hessian, csize * 3 * csize * 3 * m_nSubj * sizeof(double));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+#else
 	m_Hessian = new double[csize * 3 * csize * 3 * m_nSubj];
+#endif
 	m_Hessian_work = new double[csize * 3 * csize * 3];
 #ifdef _USE_SYSV
 	m_gradient_new = new double[csize * 3 * m_nSubj];
@@ -147,11 +183,44 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_gradient_new = new double[csize * 3 * 2 * m_nSubj];
 #endif
 	m_csize = (m_degree + 1) * (m_degree + 1) * m_nSubj; // total # of coefficients
+#ifdef _USE_CUDA_BLAS
+	status = cudaMallocHost((void**)&m_coeff, m_csize * 3 * sizeof(double));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+	status = cudaMallocHost((void**)&m_coeff_prev_step, m_csize * 3 * sizeof(double));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+	status = cudaMallocHost((void**)&m_gradient, m_csize * 3 * sizeof(double));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+	status = cudaMallocHost((void**)&m_pole, m_nSubj * 3 * 2 * sizeof(float));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+	status = cudaMallocHost((void**)&m_Tbasis, m_nSubj * 3 * 2 * sizeof(float));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+#else
 	m_coeff = new double[m_csize * 3];	// how many coefficients are required: the sum of all possible coefficients
 	m_coeff_prev_step = new double[m_csize * 3];	// the previous coefficients
 	m_gradient = new double[m_csize * 3];
 	m_pole = new float[m_nSubj * 3 * 2];	// pole information
 	m_Tbasis = new float[m_nSubj * 3 * 2];	// tangent plane for the exponential map
+#endif
 	
 	// set all the coefficient to zeros
 	memset(m_coeff, 0, sizeof(double) * m_csize * 3);
@@ -234,7 +303,31 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		// previous spherical harmonic deformation fields
 		log += "-Spherical harmonics information\n";
 		initSphericalHarmonics(subj, coeff);
-		
+#ifdef _USE_CUDA_BLAS
+		int nVertex = m_spharm[subj].sphere->nVertex();
+		int nFace = m_spharm[subj].sphere->nFace();
+		status = cudaMallocHost((void**)&m_spharm[subj].vertex0, nVertex * 3 * sizeof(float));
+		if (status != cudaSuccess)
+		{
+			cout << "Fatal error: allocating pinned host memory" << endl;
+			exit(1);
+		}
+		status = cudaMallocHost((void**)&m_spharm[subj].vertex1, nVertex * 3 * sizeof(float));
+		if (status != cudaSuccess)
+		{
+			cout << "Fatal error: allocating pinned host memory" << endl;
+			exit(1);
+		}
+		status = cudaMallocHost((void**)&m_spharm[subj].face, nFace * 3 * sizeof(int));
+		if (status != cudaSuccess)
+		{
+			cout << "Fatal error: allocating pinned host memory" << endl;
+			exit(1);
+		}
+		for (int i = 0; i < nVertex; i++) memcpy(&m_spharm[subj].vertex0[i * 3], m_spharm[subj].vertex[i]->p0, sizeof(float) * 3);
+		for (int i = 0; i < nFace; i++) memcpy(&m_spharm[subj].face[i * 3], m_spharm[subj].sphere->face(i)->list(), sizeof(int) * 3);
+#endif
+
 		// landmarks
 		if (landmark != NULL)
 		{
@@ -329,6 +422,15 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	cout << "Computing weight terms" << endl;
 	int nLandmark = m_spharm[0].landmark.size() * 3;	// # of landmarks: we assume all the subject has the same number, which already is checked above.
 	int nSamples = m_propertySamples.size() / 3;	// # of sampling points for property map agreement
+#ifdef _USE_CUDA_BLAS
+	status = cudaMallocHost((void**)&m_propertySamples_pinned, nSamples * 3 * sizeof(float));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+	memcpy(m_propertySamples_pinned, (float *)&m_propertySamples[0], nSamples * 3 * sizeof(float));
+#endif
 	m_nQuerySamples = nSamples;
 	
 	// weights for covariance matrix computation
@@ -363,14 +465,32 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	
 	cout << "Initialization of work space\n";
 	m_cov = new float[m_nSubj * m_nSubj];	// convariance matrix defined in the duel space with dimensions: nSubj x nSubj
+#ifdef _USE_CUDA_BLAS
+	status = cudaMallocHost((void**)&m_feature, m_nSubj * (nLandmark + nSamples * nTotalProperties) * sizeof(float));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+#else
 	m_feature = new float[m_nSubj * (nLandmark + nSamples * nTotalProperties)];	// the entire feature vector map for optimization
+#endif
 
 	// AABB tree cache for each subject: this stores the closest face of the sampling point to the corresponding face on the input sphere model
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		if (nTotalProperties > 0)
 		{
+#ifdef _USE_CUDA_BLAS
+			status = cudaMallocHost((void**)&m_spharm[subj].tree_cache, nSamples * sizeof(int));
+			if (status != cudaSuccess)
+			{
+				cout << "Fatal error: allocating pinned host memory" << endl;
+				exit(1);
+			}
+#else
 			m_spharm[subj].tree_cache = new int[nSamples];
+#endif
 			for (int i = 0; i < nSamples; i++)
 				m_spharm[subj].tree_cache[i] = -1;	// initially, set to -1 (invalid index)
 			int nVertex = m_spharm[subj].sphere->nVertex();
@@ -382,14 +502,38 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	}
 
 	// Find the maximum buffer size for gradients
+	int nVertex = 0;
+	int nFace = m_ico_mesh->nFace();
 	m_nMaxVertex = m_nQuerySamples;
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		m_nMaxVertex = (m_nMaxVertex < m_spharm[subj].sphere->nVertex()) ? m_spharm[subj].sphere->nVertex(): m_nMaxVertex;
+		nVertex = (nVertex < m_spharm[subj].sphere->nVertex()) ? m_spharm[subj].sphere->nVertex(): nVertex;
 	}
+
+#ifdef _USE_CUDA_BLAS
+	m_nCThreads = nCThreads;
+	if (m_nCThreads == 0)
+	{
+		size_t free, total;
+		Gradient *gsize = new Gradient(nVertex, nFace, m_nQuerySamples, m_degree);
+		cudaMemGetInfo(&free, &total);
+		m_nCThreads = (total / (total - free));
+		delete gsize;
+	}
+	cout << "# of CUDA streams: " << m_nCThreads << endl;
+	m_cuda_grad = new Gradient*[m_nCThreads];
+	for (int i = 0; i < m_nCThreads; i++)
+	{
+		m_cuda_grad[i] = new Gradient(nVertex, nFace, m_nQuerySamples, m_degree);
+	}
+#else
+	m_nCThreads = 1;
 	m_gradient_raw = new double[m_nMaxVertex * 3 * csize * 2];	// work space for jacobian
 	m_gradient_diag = new double[m_nMaxVertex];	// work space for jacobian
-	m_gradient_work = new double[csize * 3];
+	m_gradient_work = new double[csize * 3 + m_nMaxVertex];
+	for (int i = 0; i < m_nMaxVertex; i++) m_gradient_work[csize * 3 + i] = 1;
+#endif
 
 	cout << "Feature vector creation\n";
 
@@ -402,9 +546,23 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		#pragma omp parallel for
 		for (int subj = 0; subj < m_nSubj; subj++) initArea(subj);
 	}
-	
+#ifdef _USE_CUDA_BLAS
+	status = cudaMallocHost((void**)&m_mean, nSamples * nTotalProperties * sizeof(double));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+	status = cudaMallocHost((void**)&m_variance, nSamples * nTotalProperties * sizeof(double));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+#else
 	m_mean = new double[nSamples * nTotalProperties];
 	m_variance = new double[nSamples * nTotalProperties];
+#endif
 
 	bool guess = m_guess;
 	m_guess = false;
@@ -478,7 +636,16 @@ void HSD::initSphericalHarmonics(int subj, const char **coeff)
 	m_spharm[subj].degree = m_degree;
 	
 	int nVertex = m_spharm[subj].sphere->nVertex();
+#ifdef _USE_CUDA_BLAS
+	cudaError_t status = cudaMallocHost((void**)&m_spharm[subj].Y, (m_degree + 1) * (m_degree + 1) * nVertex * sizeof(double));
+	if (status != cudaSuccess)
+	{
+		cout << "Fatal error: allocating pinned host memory" << endl;
+		exit(1);
+	}
+#else
 	m_spharm[subj].Y = new double[(m_degree + 1) * (m_degree + 1) * nVertex];
+#endif
 	// build spherical harmonic basis functions for each vertex
 	for (int i = 0; i < nVertex; i++)
 	{
@@ -544,7 +711,16 @@ string HSD::initProperties(int subj, const char **property, int nHeaderLines)
 		m_spharm[subj].maxProperty = new float[m_nProperties + m_nSurfaceProperties];
 		m_spharm[subj].minProperty = new float[m_nProperties + m_nSurfaceProperties];
 		m_spharm[subj].sdevProperty = new float[m_nProperties + m_nSurfaceProperties];
+#ifdef _USE_CUDA_BLAS
+		cudaError_t status = cudaMallocHost((void**)&m_spharm[subj].property, (m_nProperties + m_nSurfaceProperties) * nVertex * sizeof(float));
+		if (status != cudaSuccess)
+		{
+			cout << "Fatal error: allocating pinned host memory" << endl;
+			exit(1);
+		}
+#else
 		m_spharm[subj].property = new float[(m_nProperties + m_nSurfaceProperties) * nVertex];
+#endif
 	}
 	else
 	{
@@ -1102,6 +1278,9 @@ void HSD::updateDisplacement(int subj_id, int degree)
 			m_spharm[subj].vertex[i]->p0[1] = v[1];
 			m_spharm[subj].vertex[i]->p0[2] = v[2];
 		}
+#ifdef _USE_CUDA_BLAS
+		for (int i = 0; i < nVertex; i++) memcpy(&m_spharm[subj].vertex0[i * 3], m_spharm[subj].vertex[i]->p0, sizeof(float) * 3);
+#endif
 	}
 }
 
@@ -1565,12 +1744,18 @@ void HSD::updateGradient(int deg_beg, int deg_end, double lambda, int subj_id)
 		memset(&m_Hessian[csize * 3 * csize * 3 * subj], 0, sizeof(double) * size * size * 3 * 3);
 		// update landmark
 		if (nLandmark > 0) updateGradientLandmark(deg_beg, deg_end, subj);
+#ifdef _USE_CUDA_BLAS
+		for (int i = 0; i < m_spharm[subj].sphere->nVertex(); i++) memcpy(&m_spharm[subj].vertex1[i * 3], m_spharm[subj].sphere->vertex(i)->fv(), sizeof(float) * 3);
+		int sid = subj % m_nCThreads;
+		int ssid = subj / m_nCThreads;
+		if (size == csize) ssid = 0;
+#endif
 
 		// update properties
 		if (nSamples > 0)
 		{
 #ifdef _USE_CUDA_BLAS
-			updateGradientProperties_cuda(deg_beg, deg_end, subj);
+			updateGradientProperties_cuda(deg_beg, deg_end, subj, sid, ssid);
 #else
 			updateGradientProperties(deg_beg, deg_end, subj);
 #endif
@@ -1579,19 +1764,24 @@ void HSD::updateGradient(int deg_beg, int deg_end, double lambda, int subj_id)
 		if (m_degree_inc > 0 && m_icosahedron >= m_fine_res)
 		{
 #ifdef _USE_CUDA_BLAS
-			updateGradientDisplacement_cuda(deg_beg, deg_end, subj);
+			updateGradientDisplacement_cuda(deg_beg, deg_end, subj, sid, ssid);
 #else
 			updateGradientDisplacement(deg_beg, deg_end, subj);
 #endif
 		}
 	}
-	#pragma omp parallel for
-	for (int subj = 0; subj < m_nSubj; subj++)
+#ifdef _USE_CUDA_BLAS
+	cudaDeviceSynchronize();
+#endif
+	if (m_icosahedron >= m_fine_res)
 	{
-		if (m_spharm[subj].fixed) continue;
-		if (m_spharm[subj].step == 0) continue;
-		if (m_icosahedron >= m_fine_res)
-			updateNewGradient(deg_beg, deg_end, lambda, subj);
+		#pragma omp parallel for
+		for (int subj = 0; subj < m_nSubj; subj++)
+		{
+			if (m_spharm[subj].fixed) continue;
+			if (m_spharm[subj].step == 0) continue;
+				updateNewGradient(deg_beg, deg_end, lambda, subj);
+		}
 	}
 }
 
@@ -1789,7 +1979,7 @@ void HSD::updateGradientLandmark(int deg_beg, int deg_end, int subj_id)
 }
 
 #ifdef _USE_CUDA_BLAS
-void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id)
+void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id, int sid, int ssid)
 {
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject has the same number
 	int nSamples = m_nQuerySamples;	// # of sampling points for property map agreement
@@ -1804,17 +1994,15 @@ void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id)
 	int subj = subj_id;
 	int nVertex = m_spharm[subj].sphere->nVertex();
 	int nFace = m_spharm[subj].sphere->nFace();
-	float *vertex = new float[nVertex * 3]; for (int i = 0; i < nVertex; i++) memcpy(&vertex[i * 3], m_spharm[subj].sphere->vertex(i)->fv(), sizeof(float) * 3);
-	int *face = new int[nFace * 3]; for (int i = 0; i < nFace; i++) memcpy(&face[i * 3], m_spharm[subj].sphere->face(i)->list(), sizeof(int) * 3);
 	const float *feature = &m_feature[subj * (nLandmark * 3 + m_nSamples * (m_nProperties + m_nSurfaceProperties)) + nLandmark * 3 + m_nSamples * k];
-	const float *propertySamples = (float *)&m_propertySamples[0];
+	const float *propertySamples = m_propertySamples_pinned;
 	const double *variance = &m_variance[m_nSamples * k];
 	const float *property = &m_spharm[subj].property[nVertex * k];
 	const double *mean = &m_mean[m_nSamples * k];
-	Gradient::updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res);
-	
-	delete [] vertex;
-	delete [] face;
+	const float *vertex = m_spharm[subj].vertex1;
+	const int *face = m_spharm[subj].face;
+
+	m_cuda_grad[sid]->updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res, ssid);
 }
 #endif
 
@@ -1831,6 +2019,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 	const double normalization = m_eta * 1.0 / (double)(((m_nProperties + m_nSurfaceProperties) * nSamples) * m_nSubj);
 	
 	double *grad = m_gradient_work;
+	double *ones = &m_gradient_work[csize * 3];
 	memset(grad, 0, sizeof(double) * size * 3);
 
 	for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
@@ -1975,7 +2164,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 					}
 				}
 			}
-			for (int i = 0; i < nSamples; i++)
+			/*for (int i = 0; i < nSamples; i++)
 			{
 				for (int j = n0; j < n; j++)
 				{
@@ -1983,7 +2172,8 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 					grad[size + j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size + j - n0];
 					grad[size * 2 + j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size * 2 + j - n0];
 				}
-			}
+			}*/
+			ATB(&m_gradient_raw[m_nMaxVertex * 3 * csize], nSamples, size * 3, ones, 1, grad);
 			for (int j = n0; j < n; j++)
 			{
 				m_spharm[subj].gradient[j] += grad[j - n0] * normalization;
@@ -1997,7 +2187,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 }
 
 #ifdef _USE_CUDA_BLAS
-void HSD::updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj_id)
+void HSD::updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj_id, int sid, int ssid)
 {
 	int nLandmark = m_spharm[0].landmark.size();	// # of landmarks: we assume all the subject has the same number
 	int nCoeff = (m_degree + 1) * (m_degree + 1);
@@ -2011,13 +2201,10 @@ void HSD::updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj_id)
 	
 	const double normalization = m_lambda2 / nVertex / (double)(m_nSubj);
 	
-	float *vertex0 = new float[nVertex * 3]; for (int i = 0; i < nVertex; i++) memcpy(&vertex0[i * 3], m_spharm[subj].vertex[i]->p0, sizeof(float) * 3);
-	float *vertex1 = new float[nVertex * 3]; for (int i = 0; i < nVertex; i++) memcpy(&vertex1[i * 3], m_spharm[subj].sphere->vertex(i)->fv(), sizeof(float) * 3);
+	const float *vertex0 = m_spharm[subj].vertex0;
+	const float *vertex1 = m_spharm[subj].vertex1;
 
-	Gradient::updateGradientDsiplacement(vertex0, vertex1, nVertex, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res);
-	
-	delete [] vertex0;
-	delete [] vertex1;
+	m_cuda_grad[sid]->updateGradientDsiplacement(vertex0, vertex1, nVertex, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res, ssid);
 }
 #endif
 
@@ -2034,6 +2221,7 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 	//if (subj_id != -1) normalization = m_lambda2;
 
 	double *grad = m_gradient_work;
+	double *ones = &m_gradient_work[csize * 3];
 	memset(grad, 0, sizeof(double) * size * 3);
 	
 	// displacement gradient
@@ -2145,7 +2333,7 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 				}
 			}
 		}
-		for (int i = 0; i < nVertex; i++)
+		/*for (int i = 0; i < nVertex; i++)
 		{
 			for (int j = n0; j < n; j++)
 			{
@@ -2153,7 +2341,8 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 				grad[size + j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size + j - n0];
 				grad[size * 2 + j - n0] += m_gradient_raw[m_nMaxVertex * 3 * csize + size * 3 * i + size * 2 + j - n0];
 			}
-		}
+		}*/
+		ATB(&m_gradient_raw[m_nMaxVertex * 3 * csize], nVertex, size * 3, ones, 1, grad);
 		for (int j = n0; j < n; j++)
 		{
 			m_spharm[subj].gradient[j] += grad[j - n0] * normalization / nVertex;

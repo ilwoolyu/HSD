@@ -37,5 +37,7 @@ mark_as_advanced(BLAS_SYSV)
 if (BLAS_SYSV)
    target_compile_definitions(HSD PRIVATE _USE_SYSV)
 endif()
+target_compile_definitions(HSD PRIVATE HSD_VERSION=\"v${HSD_VERSION}\")
+
 mark_as_advanced(CLI11_VER)
 target_link_libraries(HSD Mesh ${LAPACK_LIBRARIES})

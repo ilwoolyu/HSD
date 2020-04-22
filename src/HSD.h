@@ -2,7 +2,7 @@
 *	HSD.h
 *
 *	Release: Sep 2016
-*	Update: Dec 2019
+*	Update: Apr 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -17,13 +17,19 @@
 #include "AABB_Sphere.h"
 #include "SurfaceUtil.h"
 
+#ifdef _USE_CUDA_BLAS
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "cuda/grad.h"
+#endif
+
 using namespace std;
 
 class HSD
 {
 public:
 	HSD(void);
-	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true, const char *ico_mesh = NULL);
+	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true, const char *ico_mesh = NULL, int nCThreads = 1);
 	~HSD(void);
 	void run(void);
 	void saveCoeff(const char *filename, int id);
@@ -33,7 +39,7 @@ public:
 	
 private:
 	// class members for initilaization
-	void init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree = 3, const bool *fixedSubj = NULL, const char *tmpVariance = NULL, const char *ico_mesh = NULL);
+	void init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree = 3, const bool *fixedSubj = NULL, const char *tmpVariance = NULL, const char *ico_mesh = NULL, int nCThreads = 1);
 	void initSphericalHarmonics(int subj, const char **coeff);
 	string initTriangleFlipping(int subj);
 	string initProperties(int subj, const char **property, int nHeaderLines);
@@ -49,9 +55,9 @@ private:
 	void updateGradient(int deg_beg, int deg_end, double lambda, int subj = -1);
 	void updateGradientLandmark(int deg_beg, int deg_end, int subj = -1);
 	void updateGradientProperties(int deg_beg, int deg_end, int subj = -1);
-	void updateGradientProperties_cuda(int deg_beg, int deg_end, int subj = -1);
+	void updateGradientProperties_cuda(int deg_beg, int deg_end, int subj = -1, int sid = 0, int ssid = 0);
 	void updateGradientDisplacement(int deg_beg, int deg_end, int subj = -1);
-	void updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj = -1);
+	void updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj = -1, int sid = 0, int ssid = 0);
 	void updateHessian(int deg_beg, int deg_end, int nSamples, int subj);
 	void updateNewGradient(int deg_beg, int deg_end, double lambda, int subj);
 	void updateLandmark(int subj = -1);
@@ -120,6 +126,11 @@ private:
 		bool step_adjusted;
 		double step;
 		float neg_area_threshold;
+#ifdef _USE_CUDA_BLAS
+		float *vertex0;
+		float *vertex1;
+		int *face;
+#endif
 	};
 
 	int m_nSubj;
@@ -136,6 +147,7 @@ private:
 	int m_fine_res;
 	int m_nMaxVertex;
 	int m_nThreads;
+	int m_nCThreads;
 	
 	double *m_coeff;
 	double *m_coeff_prev_step;	// previous coefficients
@@ -153,6 +165,11 @@ private:
 	spharm *m_spharm;
 	vector<float> m_propertySamples;
 	
+#ifdef _USE_CUDA_BLAS
+	Gradient **m_cuda_grad;
+	float *m_propertySamples_pinned;
+#endif
+
 	float m_mincost;
 	float m_eta;
 	float m_lambda1;

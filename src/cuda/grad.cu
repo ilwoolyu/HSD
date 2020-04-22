@@ -1,31 +1,32 @@
-#include <cublas_v2.h>
-#include <cusparse_v2.h>
 #include "grad.h"
 #include "geom.h"
 #include "geom.cu"
 
 __global__ void DA_kernel(double *A, double *B, double *C, int num_rows, int num_cols)
 {
-	int row = blockIdx.x * blockDim.x + threadIdx.x;
-	if (row < num_rows)
-		for (int col = 0; col < num_cols; col++)
-			C[row * num_cols + col] = A[row] * B[row * num_cols + col];
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	int row = i / num_cols;
+	int col = i % num_cols;
+	if (row < num_rows && col < num_cols)
+		C[row * num_cols + col] = A[row] * B[row * num_cols + col];
 }
 
 __global__ void SA_kernel(double scalar, double *A, int num_rows, int num_cols)
 {
-	int row = blockIdx.x * blockDim.x + threadIdx.x;
-	if (row < num_rows)
-		for (int col = 0; col < num_cols; col++)
-			A[row * num_cols + col] *= scalar;
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	int row = i / num_cols;
+	int col = i % num_cols;
+	if (row < num_rows && col < num_cols)
+		A[row * num_cols + col] *= scalar;
 }
 
 __global__ void PA_kernel(double *A, double *B, int num_rows, int num_cols)
 {
-	int row = blockIdx.x * blockDim.x + threadIdx.x;
-	if (row < num_rows)
-		for (int col = 0; col < num_cols; col++)
-			A[row * num_cols + col] += B[row * num_cols + col];
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	int row = i / num_cols;
+	int col = i % num_cols;
+	if (row < num_rows && col < num_cols)
+		A[row * num_cols + col] += B[row * num_cols + col];
 }
 
 __global__ void gradient_properties_kernel(const float *vertex, int nVertex, const int *face, int nFace, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *gradient_raw, double *gradient_diag, double *dEdx)
@@ -193,54 +194,56 @@ __global__ void dEdx_kernel(int nVertex, int degree, int deg_beg, int deg_end, d
 	}
 }
 
-void Gradient::_ATB(double *d_A, int nr_rows_A, int nr_cols_A, double *d_B, int nr_cols_B, double *d_C)
+void Gradient::_ATB(double *d_A, int nr_rows_A, int nr_cols_A, double *d_B, int nr_cols_B, double *d_C, cublasHandle_t handle, cudaStream_t stream)
 {
 	int m = nr_cols_A, n = nr_cols_B, k = nr_rows_A;
 	int lda = m,ldb = n,ldc = m;
 	const double alpha = 1;
 	const double beta = 0;
 	
-	// Create a handle for CUBLAS
-	cublasHandle_t handle;
-	cublasCreate_v2(&handle);
-
 	// Do the actual multiplication
-	cublasDgemm_v2(handle, CUBLAS_OP_N, CUBLAS_OP_T, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc);
-	
-	cublasDestroy_v2(handle);
+	if (stream != 0)
+		cublasSetStream(handle, stream);
+	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc);
 }
 
-void Gradient::_DA(double *d_D, double *d_A, int nr_rows, int nr_cols, double *d_B)
+void Gradient::_DA(double *d_D, double *d_A, int nr_rows, int nr_cols, double *d_B, cudaStream_t stream)
 {
 	int blocksize = 256; // or any size up to 512
-	int nblocks = (nr_rows + blocksize - 1) / blocksize;
+	int nblocks = (nr_rows * nr_cols + blocksize - 1) / blocksize;
 	
-	DA_kernel<<<nblocks,blocksize>>>(d_D, d_A, d_B, nr_rows, nr_cols);
+	if (stream != 0)
+		DA_kernel<<<nblocks,blocksize,0,stream>>>(d_D, d_A, d_B, nr_rows, nr_cols);
+	else
+		DA_kernel<<<nblocks,blocksize>>>(d_D, d_A, d_B, nr_rows, nr_cols);
 }
 
-void Gradient::_SA(double scalar, double *d_A, int nr_rows, int nr_cols)
+void Gradient::_SA(double scalar, double *d_A, int nr_rows, int nr_cols, cudaStream_t stream)
 {
 	int blocksize = 256; // or any size up to 512
-	int nblocks = (nr_rows + blocksize - 1) / blocksize;
+	int nblocks = (nr_rows * nr_cols + blocksize - 1) / blocksize;
 	
-	SA_kernel<<<nblocks,blocksize>>>(scalar, d_A, nr_rows, nr_cols);
+	if (stream != 0)
+		SA_kernel<<<nblocks,blocksize,0,stream>>>(scalar, d_A, nr_rows, nr_cols);
+	else
+		SA_kernel<<<nblocks,blocksize>>>(scalar, d_A, nr_rows, nr_cols);
 }
 
-void Gradient::_PA(double *d_A, double *d_B, int nr_rows, int nr_cols)
+void Gradient::_PA(double *d_A, double *d_B, int nr_rows, int nr_cols, cudaStream_t stream)
 {
 	int blocksize = 256; // or any size up to 512
-	int nblocks = (nr_rows + blocksize - 1) / blocksize;
+	int nblocks = (nr_rows * nr_cols + blocksize - 1) / blocksize;
 	
-	PA_kernel<<<nblocks,blocksize>>>(d_A, d_B, nr_rows, nr_cols);
+	if (stream != 0)
+		PA_kernel<<<nblocks,blocksize,0,stream>>>(d_A, d_B, nr_rows, nr_cols);
+	else
+		PA_kernel<<<nblocks,blocksize>>>(d_A, d_B, nr_rows, nr_cols);
 }
 
-void Gradient::_ATDA(double *d_A, double *d_D, int nr_rows_A, int nr_cols_A, double *d_B)
+void Gradient::_ATDA(double *d_A, double *d_D, int nr_rows_A, int nr_cols_A, double *d_B, double *d_C, int sid)
 {
-	double *d_C;
-	cudaMalloc(&d_C, nr_rows_A * nr_cols_A * sizeof(double));
-	_DA(d_D, d_A, nr_rows_A, nr_cols_A, d_C);
-	_ATB(d_A, nr_rows_A, nr_cols_A, d_C, nr_cols_A, d_B);
-	cudaFree(d_C);
+	_DA(d_D, d_A, nr_rows_A, nr_cols_A, d_C, stream[sid]);
+	_ATB(d_A, nr_rows_A, nr_cols_A, d_C, nr_cols_A, d_B, handle[sid], stream[sid]);
 }
 
 void Gradient::ATDA(double *h_A, double *h_D, int nr_rows_A, int nr_cols_A, double *h_B)
@@ -256,8 +259,11 @@ void Gradient::ATDA(double *h_A, double *h_D, int nr_rows_A, int nr_cols_A, doub
 	cudaMemcpy(d_A, h_A, nr_rows_A * nr_cols_A * sizeof(double), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_D, h_D, nr_rows_A * sizeof(double), cudaMemcpyHostToDevice);
 
+	cublasHandle_t handle;
+	cublasCreate(&handle);
 	_DA(d_D, d_A, nr_rows_A, nr_cols_A, d_C);
-	_ATB(d_A, nr_rows_A, nr_cols_A, d_C, nr_cols_A, d_B);
+	_ATB(d_A, nr_rows_A, nr_cols_A, d_C, nr_cols_A, d_B, handle);
+	cublasDestroy(handle);
 
 	cudaMemcpy(h_B, d_B, nr_cols_A * nr_cols_A * sizeof(double), cudaMemcpyDeviceToHost);
 
@@ -278,98 +284,36 @@ void Gradient::ATB(double *h_A, int nr_rows_A, int nr_cols_A, double *h_B, int n
 	cudaMemcpy(d_A, h_A, nr_rows_A * nr_cols_A * sizeof(double), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_B, h_B, nr_cols_A * nr_cols_B * sizeof(double), cudaMemcpyHostToDevice);
 
-	_ATB(d_A, nr_rows_A, nr_cols_A, d_B, nr_cols_B, d_C);
+	// Create a handle for CUBLAS
+	cublasHandle_t handle;
+	cublasCreate(&handle);
+	_ATB(d_A, nr_rows_A, nr_cols_A, d_B, nr_cols_B, d_C, handle);
+	cublasDestroy(handle);
 
-	cudaMemcpy(h_C, d_C, nr_rows_A * nr_cols_B * sizeof(double), cudaMemcpyDeviceToHost);
+	cudaMemcpyAsync(h_C, d_C, nr_rows_A * nr_cols_B * sizeof(double), cudaMemcpyDeviceToHost);
 
 	cudaFree(d_A);
 	cudaFree(d_B);
 	cudaFree(d_C);
 }
 
-void Gradient::updateGradientProperties(const float *vertex, int nVertex, const int *face, int nFace, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *M, bool hessian)
+Gradient::Gradient(void)
 {
-	int blocksize = 256; // or any size up to 512
-	int nblocks = (nSamples + blocksize - 1) / blocksize;
-	
-	float *d_vertex;
-	int *d_face;
-	float *d_feature;
-	double *d_variance;
-	float *d_property;
-	float *d_pole;
-	float *d_propertySamples;
-	double *d_Y;
-	double *d_coeff;
-	float *d_u1;
-	float *d_u2;
-	double *d_gradient;
-	double *d_gradient_new;
-	double *d_gradient_raw;
-	double *d_gradient_diag;
-	double *d_dEdx;
-	double *d_m_bar;
-	int *d_fid;
-	double *d_M;
-	double *d_M_new;
-	int n = (deg_end + 1) * (deg_end + 1);
-	int n0 = deg_beg * deg_beg;
-	int size = n - n0;
-	int nblocks2 = (size * 3 + blocksize - 1) / blocksize;
-	
-	cudaMalloc(&d_vertex, nVertex * 3 * sizeof(float));
-	cudaMalloc(&d_face, nFace * 3 * sizeof(int));
-	cudaMalloc(&d_feature, nSamples * sizeof(float));
-	cudaMalloc(&d_variance, nSamples * sizeof(double));
-	cudaMalloc(&d_property, nVertex * sizeof(float));
-	cudaMalloc(&d_pole, 2 * sizeof(float));
-	cudaMalloc(&d_propertySamples, nSamples * 3 * sizeof(float));
-	cudaMalloc(&d_Y, nVertex * (degree + 1) * (degree + 1) * sizeof(double));
-	cudaMalloc(&d_coeff, (degree + 1) * (degree + 1) * 3 * sizeof(double));
-	cudaMalloc(&d_m_bar, nSamples * sizeof(double));
-	cudaMalloc(&d_fid, nSamples * sizeof(int));
-	cudaMalloc(&d_u1, 3 * sizeof(float));
-	cudaMalloc(&d_u2, 3 * sizeof(float));
-	cudaMalloc(&d_gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double));
-	cudaMalloc(&d_gradient_new, (degree + 1) * (degree + 1) * 3 * sizeof(double));
-	cudaMalloc(&d_gradient_raw, nSamples * (degree + 1) * (degree + 1) * 3 * sizeof(double));
-	cudaMalloc(&d_gradient_diag, nSamples * sizeof(double));
-	cudaMalloc(&d_dEdx, nSamples * sizeof(double));
-	cudaMalloc(&d_M, size * 3 * size * 3 * sizeof(double));
-	cudaMalloc(&d_M_new, size * 3 * size * 3 * sizeof(double));
-	
-	cudaMemcpy(d_vertex, vertex, nVertex * 3 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_face, face, nFace * 3 * sizeof(int), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_feature, feature, nSamples * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_variance, variance, nSamples * sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_property, property, nVertex * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_pole, pole, 2 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_propertySamples, propertySamples, nSamples * 3 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_Y, Y, nVertex * (degree + 1) * (degree + 1) * sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_coeff, coeff, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_m_bar, m_bar, nSamples * sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_fid, fid, nSamples * sizeof(int), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_u1, u1, 3 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_u2, u2, 3 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_gradient, gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_M, M, size * 3 * size * 3 * sizeof(double), cudaMemcpyHostToDevice);
+}
 
-	gradient_properties_kernel<<<nblocks,blocksize>>>(d_vertex, nVertex, d_face, nFace, d_feature, d_propertySamples, nSamples, d_variance, d_property, d_pole, d_Y, d_coeff, degree, deg_beg, deg_end, normalization, d_m_bar, d_u1, d_u2, d_fid, d_gradient_new, d_gradient_raw, d_gradient_diag, d_dEdx);
-	dEdx_kernel<<<nblocks2,blocksize>>>(nSamples, degree, deg_beg, deg_end, d_gradient_new, d_gradient_raw, d_dEdx);
-	_SA(normalization, d_gradient_new, (degree + 1) * (degree + 1) * 3, 1);
-	_PA(d_gradient, d_gradient_new, (degree + 1) * (degree + 1) * 3, 1);
-	cudaMemcpy(gradient, d_gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyDeviceToHost);
-	
-	if (hessian)
-	{
-		_ATDA(d_gradient_raw, d_gradient_diag, nSamples, size * 3, d_M_new);
-		_PA(d_M, d_M_new, size * 3, size * 3);
-		cudaMemcpy(M, d_M, size * 3 * size * 3 * sizeof(double), cudaMemcpyDeviceToHost);
-	}
-	//cudaMemcpy(gradient_raw, d_gradient_raw, nSamples * (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyDeviceToHost);
-	//cudaMemcpy(gradient_diag, d_gradient_diag, nSamples * sizeof(double), cudaMemcpyDeviceToHost);
+Gradient::Gradient(int nVertex, int nFace, int nSamples, int degree)
+{
+	allocMemory(nVertex, nFace, nSamples, degree);
+}
 
-	cudaFree(d_vertex);
+Gradient::~Gradient(void)
+{
+	freeMemory();
+}
+
+void Gradient::freeMemory(void)
+{
+	cudaFree(d_vertex0);
 	cudaFree(d_feature);
 	cudaFree(d_variance);
 	cudaFree(d_face);
@@ -386,9 +330,125 @@ void Gradient::updateGradientProperties(const float *vertex, int nVertex, const 
 	cudaFree(d_gradient_new);
 	cudaFree(d_gradient_raw);
 	cudaFree(d_gradient_diag);
+	cudaFree(d_gradient_work);
 	cudaFree(d_dEdx);
 	cudaFree(d_M);
 	cudaFree(d_M_new);
+	for (int i = 0; i < nStream; i++)
+	{
+		cublasDestroy(handle[i]);
+		cudaStreamDestroy(stream[i]);
+	}
+	delete [] handle;
+	delete [] stream;
+}
+
+void Gradient::allocMemory(int nVertex, int nFace, int nSamples, int degree)
+{
+	int n = (degree + 1) * (degree + 1);
+	nStream = min(n / ((degree + 1) * (degree + 1) - degree * degree), 2);
+	nMaxVertex0 = nVertex;
+	nMaxVertex1 = max(nVertex, nSamples);
+	nMaxFace = nFace;
+
+	cudaMalloc(&d_vertex0, nMaxVertex0 * 3 * nStream * sizeof(float));
+	cudaMalloc(&d_vertex1, nMaxVertex0 * 3 * nStream * sizeof(float));
+	cudaMalloc(&d_face, nFace * 3 * nStream * sizeof(int));
+	cudaMalloc(&d_feature, nSamples * nStream * sizeof(float));
+	cudaMalloc(&d_variance, nSamples * nStream * sizeof(double));
+	cudaMalloc(&d_property, nMaxVertex0 * nStream * sizeof(float));
+	cudaMalloc(&d_pole, 2 * nStream * sizeof(float));
+	cudaMalloc(&d_propertySamples, nSamples * 3 * nStream * sizeof(float));
+	cudaMalloc(&d_Y, nMaxVertex0 * n * nStream * sizeof(double));
+	cudaMalloc(&d_coeff, n * 3 * nStream * sizeof(double));
+	cudaMalloc(&d_m_bar, nSamples * nStream * sizeof(double));
+	cudaMalloc(&d_fid, nSamples * nStream * sizeof(int));
+	cudaMalloc(&d_u1, 3 * nStream * sizeof(float));
+	cudaMalloc(&d_u2, 3 * nStream * sizeof(float));
+	cudaMalloc(&d_gradient, n * 3 * nStream * sizeof(double));
+	cudaMalloc(&d_gradient_new, n * 3 * nStream * sizeof(double));
+	cudaMalloc(&d_gradient_raw, nMaxVertex1 * n * 3 * sizeof(double));
+	cudaMalloc(&d_gradient_diag, nMaxVertex1 * nStream * sizeof(double));
+	cudaMalloc(&d_gradient_work, nMaxVertex1 * n * 3 * sizeof(double));
+	cudaMalloc(&d_dEdx, nMaxVertex1 * nStream * sizeof(double));
+	cudaMalloc(&d_M, n * 3 * n * 3 * sizeof(double));
+	cudaMalloc(&d_M_new, n * 3 * n * 3 * sizeof(double));
+	handle = (cublasHandle_t *)malloc(nStream * sizeof(cublasHandle_t));
+	stream = (cudaStream_t *)malloc(nStream * sizeof(cudaStream_t));
+	for (int i = 0; i < nStream; i++)
+	{
+		cublasCreate(&handle[i]);
+		cudaStreamCreate(&stream[i]);
+	}
+}
+
+void Gradient::updateGradientProperties(const float *vertex, int nVertex, const int *face, int nFace, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *M, bool hessian, int sid)
+{
+	int blocksize = 256; // or any size up to 512
+	int nblocks = (nSamples + blocksize - 1) / blocksize;
+
+	int n = (deg_end + 1) * (deg_end + 1);
+	int n0 = deg_beg * deg_beg;
+	int size = n - n0;
+	//int nblocks2 = (size * 3 + blocksize - 1) / blocksize;
+	sid %= nStream;
+
+	float *dp_vertex0 = &d_vertex0[nMaxVertex0 * 3 * sid];
+	int *dp_face = &d_face[nMaxFace * 3 * sid];
+	float *dp_feature = &d_feature[nSamples * sid];
+	double *dp_variance = &d_variance[nSamples * sid];
+	float *dp_property = &d_property[nMaxVertex0 * sid];
+	float *dp_pole = &d_pole[2 * sid];
+	float *dp_propertySamples =  &d_propertySamples[nSamples * 3 * sid];
+	double *dp_Y = &d_Y[nMaxVertex0 * (degree + 1) * (degree + 1) * sid];
+	double *dp_coeff = &d_coeff[(degree + 1) * (degree + 1) * 3 * sid];
+	double *dp_m_bar = &d_m_bar[nSamples * sid];
+	int *dp_fid = &d_fid[nSamples * sid];
+	float *dp_u1 = &d_u1[3 * sid];
+	float *dp_u2 = &d_u2[3 * sid];
+	double *dp_gradient = &d_gradient[(degree + 1) * (degree + 1) * 3 * sid];
+	double *dp_M = &d_M[size * 3 * size * 3 * sid];
+	double *dp_M_new = &d_M_new[size * 3 * size * 3 * sid];
+	double *dp_gradient_new = &d_gradient_new[(degree + 1) * (degree + 1) * 3 * sid];
+	double *dp_gradient_diag = &d_gradient_diag[nMaxVertex1 * sid];
+	double *dp_gradient_raw = &d_gradient_raw[nMaxVertex1 * size * 3 * sid];
+	double *dp_gradient_work = &d_gradient_work[nMaxVertex1 * size * 3 * sid];
+	double *dp_dEdx = &d_dEdx[nMaxVertex1 * sid];
+
+	cudaMemcpyAsync(dp_vertex0, vertex, nVertex * 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_face, face, nFace * 3 * sizeof(int), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_feature, feature, nSamples * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_variance, variance, nSamples * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_property, property, nVertex * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_pole, pole, 2 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_propertySamples, propertySamples, nSamples * 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_Y, Y, nVertex * (degree + 1) * (degree + 1) * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_coeff, coeff, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_m_bar, m_bar, nSamples * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_fid, fid, nSamples * sizeof(int), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_u1, u1, 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_u2, u2, 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_gradient, gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_M, M, size * 3 * size * 3 * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+
+	gradient_properties_kernel<<<nblocks,blocksize,0,stream[sid]>>>(dp_vertex0, nVertex, dp_face, nFace, dp_feature, dp_propertySamples, nSamples, dp_variance, dp_property, dp_pole, dp_Y, dp_coeff, degree, deg_beg, deg_end, normalization, dp_m_bar, dp_u1, dp_u2, dp_fid, dp_gradient_new, dp_gradient_raw, dp_gradient_diag, dp_dEdx);
+	//dEdx_kernel<<<nblocks2,blocksize,0,stream>>>(nSamples, degree, deg_beg, deg_end, dp_gradient_new, dp_gradient_raw, dp_dEdx);
+	_ATB(dp_gradient_raw, nSamples, size * 3, dp_dEdx, 1, dp_gradient_work, handle[sid], stream[sid]);
+	for (int i = 0; i < 3; i++)
+		cudaMemcpyAsync(&dp_gradient_new[n0 + (degree + 1) * (degree + 1) * i], &dp_gradient_work[i * size], size * sizeof(double), cudaMemcpyDeviceToDevice, stream[sid]);
+
+	_SA(normalization, dp_gradient_new, (degree + 1) * (degree + 1) * 3, 1, stream[sid]);
+	_PA(dp_gradient, dp_gradient_new, (degree + 1) * (degree + 1) * 3, 1, stream[sid]);
+	cudaMemcpyAsync(gradient, dp_gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyDeviceToHost, stream[sid]);
+
+	if (hessian)
+	{
+		_ATDA(dp_gradient_raw, dp_gradient_diag, nSamples, size * 3, dp_M_new, dp_gradient_work, sid);
+		_PA(dp_M, dp_M_new, size * 3, size * 3, stream[sid]);
+		cudaMemcpyAsync(M, dp_M, size * 3 * size * 3 * sizeof(double), cudaMemcpyDeviceToHost, stream[sid]);
+	}
+	//cudaMemcpyAsync(gradient_raw, dp_gradient_raw, nSamples * (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyDeviceToHost);
+	//cudaMemcpyAsync(gradient_diag, dp_gradient_diag, nSamples * sizeof(double), cudaMemcpyDeviceToHost);
 }
 
 __global__ void gradient_displacement_kernel(const float *vertex0, const float *vertex1, int nVertex, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const float *u1, const float *u2, double *gradient, double *gradient_raw, double *gradient_diag, double *dEdx)
@@ -496,82 +556,59 @@ __global__ void gradient_displacement_kernel(const float *vertex0, const float *
 	}
 }
 
-void Gradient::updateGradientDsiplacement(const float *vertex0, const float *vertex1, int nVertex, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const float *u1, const float *u2, double *gradient, double *M, bool hessian)
+void Gradient::updateGradientDsiplacement(const float *vertex0, const float *vertex1, int nVertex, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const float *u1, const float *u2, double *gradient, double *M, bool hessian, int sid)
 {
 	int blocksize = 256; // or any size up to 512
 	int nblocks = (nVertex + blocksize - 1) / blocksize;
-	
-	float *d_vertex0;
-	float *d_vertex1;
-	float *d_pole;
-	double *d_Y;
-	double *d_coeff;
-	float *d_u1;
-	float *d_u2;
-	double *d_gradient;
-	double *d_gradient_new;
-	double *d_gradient_raw;
-	double *d_gradient_diag;
-	double *d_dEdx;
-	double *d_M;
-	double *d_M_new;
+
 	int n = (deg_end + 1) * (deg_end + 1);
 	int n0 = deg_beg * deg_beg;
 	int size = n - n0;
-	int nblocks2 = (size * 3 + blocksize - 1) / blocksize;
-	
-	cudaMalloc(&d_vertex0, nVertex * 3 * sizeof(float));
-	cudaMalloc(&d_vertex1, nVertex * 3 * sizeof(float));
-	cudaMalloc(&d_pole, 2 * sizeof(float));
-	cudaMalloc(&d_Y, nVertex * (degree + 1) * (degree + 1) * sizeof(double));
-	cudaMalloc(&d_coeff, (degree + 1) * (degree + 1) * 3 * sizeof(double));
-	cudaMalloc(&d_u1, 3 * sizeof(float));
-	cudaMalloc(&d_u2, 3 * sizeof(float));
-	cudaMalloc(&d_gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double));
-	cudaMalloc(&d_gradient_new, (degree + 1) * (degree + 1) * 3 * sizeof(double));
-	cudaMalloc(&d_gradient_raw, nVertex * (degree + 1) * (degree + 1) * 3 * sizeof(double));
-	cudaMalloc(&d_gradient_diag, nVertex * sizeof(double));
-	cudaMalloc(&d_dEdx, nVertex * sizeof(double));
-	cudaMalloc(&d_M, size * 3 * size * 3 * sizeof(double));
-	cudaMalloc(&d_M_new, size * 3 * size * 3 * sizeof(double));
-	
-	cudaMemcpy(d_vertex0, vertex0, nVertex * 3 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_vertex1, vertex1, nVertex * 3 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_pole, pole, 2 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_Y, Y, nVertex * (degree + 1) * (degree + 1) * sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_coeff, coeff, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_u1, u1, 3 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_u2, u2, 3 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_gradient, gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_M, M, size * 3 * size * 3 * sizeof(double), cudaMemcpyHostToDevice);
+	//int nblocks2 = (size * 3 + blocksize - 1) / blocksize;
+	sid %= nStream;
 
-	gradient_displacement_kernel<<<nblocks,blocksize>>>(d_vertex0, d_vertex1, nVertex, d_pole, d_Y, d_coeff, degree, deg_beg, deg_end, normalization, d_u1, d_u2, d_gradient_new, d_gradient_raw, d_gradient_diag, d_dEdx);
-	dEdx_kernel<<<nblocks2,blocksize>>>(nVertex, degree, deg_beg, deg_end, d_gradient_new, d_gradient_raw, d_dEdx);
-	_SA(normalization, d_gradient_new, (degree + 1) * (degree + 1) * 3, 1);
-	_PA(d_gradient, d_gradient_new, (degree + 1) * (degree + 1) * 3, 1);
-	cudaMemcpy(gradient, d_gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyDeviceToHost);
+	float *dp_vertex0 = &d_vertex0[nMaxVertex0 * 3 * sid];
+	float *dp_vertex1 = &d_vertex1[nMaxVertex0 * 3 * sid];
+	float *dp_pole = &d_pole[2 * sid];
+	double *dp_Y = &d_Y[nMaxVertex0 * (degree + 1) * (degree + 1) * sid];
+	double *dp_coeff = &d_coeff[(degree + 1) * (degree + 1) * 3 * sid];
+	float *dp_u1 = &d_u1[3 * sid];
+	float *dp_u2 = &d_u2[3 * sid];
+	double *dp_gradient = &d_gradient[(degree + 1) * (degree + 1) * 3 * sid];
+	double *dp_M = &d_M[size * 3 * size * 3 * sid];
+	double *dp_M_new = &d_M_new[size * 3 * size * 3 * sid];
+	double *dp_gradient_new = &d_gradient_new[(degree + 1) * (degree + 1) * 3 * sid];
+	double *dp_gradient_raw = &d_gradient_raw[nMaxVertex1 * size * 3 * sid];
+	double *dp_gradient_work = &d_gradient_work[nMaxVertex1 * size * 3 * sid];
+	double *dp_gradient_diag = &d_gradient_diag[nMaxVertex1 * sid];
+	double *dp_dEdx = &d_dEdx[nMaxVertex1 * sid];
+
+	cudaMemcpyAsync(dp_vertex0, vertex0, nVertex * 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_vertex1, vertex1, nVertex * 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_pole, pole, 2 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_Y, Y, nVertex * (degree + 1) * (degree + 1) * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_coeff, coeff, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_u1, u1, 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_u2, u2, 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_gradient, gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	cudaMemcpyAsync(dp_M, M, size * 3 * size * 3 * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+
+	gradient_displacement_kernel<<<nblocks,blocksize,0,stream[sid]>>>(dp_vertex0, dp_vertex1, nVertex, dp_pole, dp_Y, dp_coeff, degree, deg_beg, deg_end, normalization, dp_u1, dp_u2, dp_gradient_new, dp_gradient_raw, dp_gradient_diag, dp_dEdx);
+	//dEdx_kernel<<<nblocks2,blocksize,0,stream>>>(nVertex, degree, deg_beg, deg_end, dp_gradient_new, dp_gradient_raw, dp_dEdx);
+	_ATB(dp_gradient_raw, nVertex, size * 3, dp_dEdx, 1, dp_gradient_work, handle[sid], stream[sid]);
+	for (int i = 0; i < 3; i++)
+		cudaMemcpyAsync(&dp_gradient_new[n0 + (degree + 1) * (degree + 1) * i], &dp_gradient_work[i * size], size * sizeof(double), cudaMemcpyDeviceToDevice, stream[sid]);
+
+	_SA(normalization, dp_gradient_new, (degree + 1) * (degree + 1) * 3, 1, stream[sid]);
+	_PA(dp_gradient, dp_gradient_new, (degree + 1) * (degree + 1) * 3, 1, stream[sid]);
+	cudaMemcpyAsync(gradient, dp_gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyDeviceToHost, stream[sid]);
 
 	if (hessian)
 	{
-		_ATDA(d_gradient_raw, d_gradient_diag, nVertex, size * 3, d_M_new);
-		_PA(d_M, d_M_new, size * 3, size * 3);
-		cudaMemcpy(M, d_M, size * 3 * size * 3 * sizeof(double), cudaMemcpyDeviceToHost);
+		_ATDA(dp_gradient_raw, dp_gradient_diag, nVertex, size * 3, dp_M_new, dp_gradient_work, sid);
+		_PA(dp_M, dp_M_new, size * 3, size * 3, stream[sid]);
+		cudaMemcpyAsync(M, dp_M, size * 3 * size * 3 * sizeof(double), cudaMemcpyDeviceToHost, stream[sid]);
 	}
-	//cudaMemcpy(gradient_raw, d_gradient_raw, nVertex * (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyDeviceToHost);
-	//cudaMemcpy(gradient_diag, d_gradient_diag, nVertex * sizeof(double), cudaMemcpyDeviceToHost);
-
-	cudaFree(d_vertex0);
-	cudaFree(d_vertex1);
-	cudaFree(d_pole);
-	cudaFree(d_Y);
-	cudaFree(d_coeff);
-	cudaFree(d_u1);
-	cudaFree(d_u2);
-	cudaFree(d_gradient);
-	cudaFree(d_gradient_new);
-	cudaFree(d_gradient_raw);
-	cudaFree(d_gradient_diag);
-	cudaFree(d_dEdx);
-	cudaFree(d_M);
-	cudaFree(d_M_new);
+	//cudaMemcpyAsync(gradient_raw, dp_gradient_raw, nVertex * (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyDeviceToHost);
+	//cudaMemcpyAsync(gradient_diag, dp_gradient_diag, nVertex * sizeof(double), cudaMemcpyDeviceToHost);
 }

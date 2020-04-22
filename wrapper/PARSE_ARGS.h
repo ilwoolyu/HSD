@@ -29,11 +29,13 @@ bool realtimeCoeff = false;
 bool noguess = false;
 int nThreads = 0;
 std::vector<int> listFixedSubj;
+int nCThreads = 0;
 
 void PARSE_ARGS(int argc, char **argv)
 {
     
-    std::string desc("Hierarchical Spherical Deformation for Cortical Surface Registration v1.2.6\n"
+    std::string desc("Hierarchical Spherical Deformation for Cortical Surface Registration "
+					 HSD_VERSION "\n"
 					 "Author: Ilwoo Lyu\n"
 					 "Please refer to the following paper for details:\n"
 					 "[1] Lyu et al., Hierarchical Spherical Deformation for Shape Correspondence, MICCAI 2018.\n"
@@ -68,8 +70,10 @@ void PARSE_ARGS(int argc, char **argv)
 	app.add_flag("--writecoeff", realtimeCoeff, "enables real-time coefficient writing whenever the cost function is minimized, which may lead to significant IO overhead");
 	app.add_flag("--noguess", noguess, "disables an initial guess for rigid alignment");
 	app.add_option("--nThreads", nThreads, "sets the number of OpenMP cores")->check(CLI::NonNegativeNumber);
+#ifdef _USE_CUDA_BLAS
+	app.add_option("--nStreams", nCThreads, "sets the number of CUDA streams (0: use full GPU capacity)")->check(CLI::NonNegativeNumber);
+#endif
 	app.add_option("--fixedSubjects", listFixedSubj, "specifies indices (starting from 0) of the subjects not being deformed during the optimization (typically for template models)")->check(CLI::NonNegativeNumber);
-
 	try
 	{
 		app.parse(argc, argv);
