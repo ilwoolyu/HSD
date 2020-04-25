@@ -7,13 +7,15 @@ We present hierarchical spherical deformation for group-wise shape correspondenc
 
 ## Environment
 * Parallel processing: this tool supports OpenMP and will perform the best efficiency with CUDA.
-* Memory: it requires about 0.5Gb per subject.
+* Memory: it requires about 0.5Gb per subject at spherical harmonics degree 15.
 ## Installation
 You can download and compile the source code using <a href="https://cmake.org/">CMake</a>. Or you can pull <a href="https://hub.docker.com/r/ilwoolyu/cmorph/">docker image</a>:
 ```
 $ docker pull ilwoolyu/cmorph:<version>
 ```
 ## Usage
+:bulb: **Please see <a href="https://github.com/ilwoolyu/HSD/tree/master/script">quick batch processing</a> for group-wise registration on FreeSurfer outputs.**
+
 ### Input
 * surface file (.vtk): triangular sphere mesh
 * feature file (.txt): scalar map - scalar value per line corresponding to vertex, i.e., # of lines = # of vertices

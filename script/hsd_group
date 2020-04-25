@@ -1,0 +1,324 @@
+#!/bin/bash
+
+farray1=()
+farray2=()
+thread=1
+out_suffix='HSD'
+out_root=''
+deg=15
+ldprior=625
+docker=''
+flist1=''
+flist2=''
+
+function usage()
+{
+    echo "USAGE: $0 [options] hemi FreeSurfer_subject_root_path"
+    echo ""
+    echo "HSD: Group-wise Surface Registration for FreeSurfer"
+    echo "Version: 1.0"
+    echo "Author: Ilwoo Lyu"
+    echo ""
+    echo "Optional Arguments"
+    echo
+    echo -e "  --thread <number>    \tthe number of the omp threads (default: $thread)"
+    echo -e "  --deg <number>       \tspherical harmonics degree (default: $deg)"
+    echo -e "  --ldprior <number>   \tdistortion prior for regularization (default: $ldprior)"
+    echo -e "  --subfolder <string> \tsub-folder name being created in output root path (default: $out_suffix)"
+    echo -e "  --out <string>       \toutput root path (default: FreeSurfer_subject_root_path)"
+    echo -e "  --docker <tag>       \tdocker image tag (e.g. 1.5)"
+    echo -e
+}
+
+function convert_surf()
+{
+	for i in `seq 0 $thread $numFiles`
+	do
+		k=$(( $i + $thread - 1 ))
+		if (( $k > $numFiles ))
+		then
+			k=$numFiles
+		fi
+		for j in `seq $i 1 $k`
+		do
+			if [ ! -d ${farray2[$j]} ]
+			then
+				mkdir -p ${farray2[$j]}
+			fi
+			isphere=${farray1[$j]}/${hemi}.sphere
+			osphere=${farray2[$j]}/${hemi}.sphere.vtk
+			if [ ! -e $osphere ]
+			then
+				mris_convert $isphere $osphere &
+			fi
+		done
+		wait
+	done
+}
+
+function convert_feat()
+{
+	for i in `seq 0 $thread $numFiles`
+	do
+		k=$(( $i + $thread - 1 ))
+		if (( $k > $numFiles ))
+		then
+			k=$numFiles
+		fi
+		for j in `seq $i 1 $k`
+		do
+			if [ ! -d ${farray2[$j]} ]
+			then
+				mkdir -p ${farray2[$j]}
+			fi
+			ifeat=${farray1[$j]}/${hemi}.$1
+			isurf=${farray1[$j]}/${hemi}.sphere
+			ofeat=${farray2[$j]}/${hemi}.$2.txt
+			otmp=${farray2[$j]}/${hemi}.$2.asc
+			if [ ! -e $ofeat ]
+			then
+				(mris_convert -c $ifeat $isurf $otmp && cut -d ' ' -f 5 $otmp > $ofeat && rm $otmp) &
+			fi
+		done
+		wait
+	done
+}
+
+function reformat_surf()
+{
+	for i in `seq 0 $thread $numFiles`
+	do
+		k=$(( $i + $thread - 1 ))
+		if (( $k > $numFiles ))
+		then
+			k=$numFiles
+		fi
+		for j in `seq $i 1 $k`
+		do
+			if [ ! -d ${farray2[$j]} ]
+			then
+				mkdir -p ${farray2[$j]}
+			fi
+			isphere=${farray2[$j]}/${hemi}.sphere.reg.vtk
+			osphere=${farray2[$j]}/${hemi}.sphere.reg
+			if [ ! -e $osphere ]
+			then
+				(mris_convert $isphere $osphere && mris_rescale $osphere $osphere) &
+			fi
+		done
+		wait
+	done
+}
+
+function cleanup()
+{
+	flist=""
+	for i in `seq 0 $numFiles`
+	do
+		if [ -e ${farray2[$i]}/${hemi}.$1 ]; then flist+=" ${farray2[$i]}/${hemi}.$1"; fi
+		if [ -e ${farray2[$i]}/${hemi}.$2 ]; then flist+=" ${farray2[$i]}/${hemi}.$2"; fi
+		if [ -e ${farray2[$i]}/${hemi}.$3 ]; then flist+=" ${farray2[$i]}/${hemi}.$3"; fi
+		if [ -e ${farray2[$i]}/${hemi}.$4 ]; then flist+=" ${farray2[$i]}/${hemi}.$4"; fi
+	done
+	rm $flist
+}
+
+trap ctrl_c INT
+
+function ctrl_c()
+{
+	if [ -e $flist1 ]; then rm $flist1; fi
+	if [ -e $flist2 ]; then rm $flist2; fi
+	exit 1
+}
+
+if [ "$#" -eq 0 ]; then
+    usage
+    exit 0
+fi
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    key="$1"
+
+    case $key in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        --deg)
+            deg="$2"
+            shift; shift
+            ;;
+        --thread)
+            thread="$2"
+            shift; shift
+            ;;
+        --ldprior)
+            ldprior="$2"
+            shift; shift
+            ;;
+        --subfolder)
+            out_suffix="$2"
+            shift; shift
+            ;;
+        --out)
+            out_root="$2"
+            shift; shift
+            ;;
+        --docker)
+            docker="$2"
+            shift; shift
+            ;;
+        -*|--*=) # unsupported flags
+            echo "Error: unsupported flag $1" >&2
+            exit 1
+            ;;
+        *)    # unknown option
+            POSITIONAL+=("$1") # save it in an array for later
+            shift # past argument
+            ;;
+    esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+if [ "$#" -ne 2 ]
+then
+    usage
+    exit 0
+fi
+
+hemi="$1"
+in="$2"/
+if [ -z $out_root ]; then out_root=$in; fi
+out="$out_root"/
+in=$(readlink -f "$in")/
+out=$(readlink -f "$out")/
+
+# check requirements
+if [ ! -d $in ]; then echo "Error: '$in' does not exist"; exit 1; fi
+if [ ! -d $out ]; then mkdir -p $out; fi
+if [ -z `which mris_convert` ]; then echo 'Error: mris_convert is mssing'; exit 1; fi
+if [ -z `which mris_rescale` ]; then echo 'Error: mris_rescale is mssing'; exit 1; fi
+if [ -z $docker ] && [ -z `which HSD` ]; then echo 'Error: HSD is mssing'; exit 1; fi
+
+# configuration summary
+echo "Threads:" $thread
+echo "Subject Root:" $in
+echo "Output Root:" $out
+echo
+
+echo "Subject list building"
+flist1=$(mktemp ${out}/XXXXXXXXX)
+flist2=$(mktemp ${out}/XXXXXXXXX)
+
+# original surface list
+find ${in} -type d -name surf > ${flist1}
+
+# target surface list
+ptr="s|${in}|${out}|g"
+odir=( `sed $ptr ${flist1}` )
+odir2=()
+for i in ${odir[@]}
+do
+	odir2+=( "$(dirname "$i")"/${out_suffix} )
+done
+printf "%s\n" "${odir2[@]}" > ${flist2}
+
+# conversion
+if [ ! -e ${flist1} ]; then echo "Error: '${flist1}' does not exist"; exit 1; fi
+if [ ! -e ${flist2} ]; then echo "Error: '${flist2}' does not exist"; exit 1; fi
+
+feat1='iH'
+feat2='sulc'
+feat3='curv'
+
+farray1=( `cat ${flist1}` )
+farray2=( `cat ${flist2}` )
+numFiles=${#farray1[@]}
+
+if [ $numFiles -lt 2 ]; then echo 'Error: at least two subjects are required'; exit 1; fi
+if [ $numFiles -ne ${#farray2[@]} ]; then echo 'Error: input and output path are not matched'; exit 1; fi
+
+(( numFiles-- ))
+echo
+
+echo "Data preparation"
+echo " - Surface conversion.. "
+convert_surf
+printf " - Surface feature conversion.. "
+convert_feat 'inflated.H' ${feat1}
+convert_feat 'sulc' ${feat2}
+convert_feat 'curv' ${feat3}
+echo
+echo
+
+rm ${flist1} ${flist2}
+
+# HSD
+echo "Group-wise surface registration"
+ico4=$HSD_SPHERE_ROOT/ico4.vtk
+ico5=$HSD_SPHERE_ROOT/ico5.vtk
+ico6=$HSD_SPHERE_ROOT/ico6.vtk
+ico7=$HSD_SPHERE_ROOT/ico7.vtk
+if [ -e $ico4 ]; then ico4="--icomesh $ico4"; else ico4=""; fi
+if [ -e $ico5 ]; then ico5="--icomesh $ico5"; else ico5=""; fi
+if [ -e $ico6 ]; then ico6="--icomesh $ico6"; else ico6=""; fi
+if [ -e $ico7 ]; then ico7="--icomesh $ico7"; else ico7=""; fi
+g1=""
+g2=""
+g3=""
+c=""
+r=""
+s=""
+
+for subj in ${farray2[@]}
+do
+	# geometry
+	geom1=${subj}/${hemi}.${feat1}.txt
+	geom2=${subj}/${hemi}.${feat2}.txt
+	geom3=${subj}/${hemi}.${feat3}.txt
+	# sphere
+	sphere=${subj}/${hemi}.sphere.vtk
+	# output
+	coeff=${subj}/${hemi}.coeff.txt
+	reg=${subj}/${hemi}.sphere.reg.vtk
+	# concatenation
+	g1+=" $geom1"
+	g2+=" $geom2"
+	g3+=" $geom3"
+	c+=" $coeff"
+	r+=" $reg"
+	s+=" $sphere"
+done
+
+if [ -z $docker ]
+then
+	# Resolution 1
+	HSD -d $deg -s $s -p $g1 --idprior $ldprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4
+	# Resolution 2
+	HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5
+	# Resolution 3
+	HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6
+	# Resolution 4
+	HSD -c $c -d $deg -s $s -p $g3 --idprior $ldprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7
+else
+	if [ -z $HSD_SPHERE_ROOT ]; then HSD_SPHERE_ROOT=''; fi
+	# Resolution 1
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -d $deg -s $s -p $g1 --idprior $ldprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4
+	# Resolution 2
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5
+	# Resolution 3
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6
+	# Resolution 4
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g3 --idprior $ldprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7
+fi
+
+# Conversion
+echo "Registered sphere conversion"
+reformat_surf
+echo
+
+# Clean up
+echo "Clean-up temporary files"
+cleanup "sphere.vtk" "iH.txt" "sulc.txt" "curv.txt"
