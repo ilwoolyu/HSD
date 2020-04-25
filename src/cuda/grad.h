@@ -16,7 +16,7 @@ private:
 	static void _DA(double *d_D, double *d_A, int nr_rows, int nr_cols, double *d_B, cudaStream_t stream = 0);
 	static void _SA(double scalar, double *d_A, int nr_rows, int nr_cols, cudaStream_t stream = 0);
 	static void _PA(double *d_A, double *d_B, int nr_rows, int nr_cols, cudaStream_t stream = 0);
-	void _ATDA(double *d_A, double *d_D, int nr_rows_A, int nr_cols_A, double *d_B, double *d_C, int sid);
+	void _ATDA(double *d_A, double *d_D, int nr_rows_A, int nr_cols_A, double *d_B, double *d_C, int sid = 0);
 	void allocMemory(int nVertex, int nFace, int nSamples, int degree);
 	void freeMemory(void);
 

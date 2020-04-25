@@ -503,12 +503,13 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 
 	// Find the maximum buffer size for gradients
 	int nVertex = 0;
-	int nFace = m_ico_mesh->nFace();
+	int nFace = 0;
 	m_nMaxVertex = m_nQuerySamples;
 	for (int subj = 0; subj < m_nSubj; subj++)
 	{
 		m_nMaxVertex = (m_nMaxVertex < m_spharm[subj].sphere->nVertex()) ? m_spharm[subj].sphere->nVertex(): m_nMaxVertex;
 		nVertex = (nVertex < m_spharm[subj].sphere->nVertex()) ? m_spharm[subj].sphere->nVertex(): nVertex;
+		nFace = (nFace < m_spharm[subj].sphere->nFace()) ? m_spharm[subj].sphere->nFace(): nFace;
 	}
 
 #ifdef _USE_CUDA_BLAS

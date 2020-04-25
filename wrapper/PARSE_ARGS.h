@@ -15,7 +15,7 @@ std::vector<std::string> listOutput;
 std::vector<std::string> listLandmark;
 std::vector<std::string> listCoeff;
 std::vector<std::string> listSurf;
-float weightMap = 0.1;
+float weightMap = 1;
 std::vector<float> listWeight;
 float idprior = 625;
 int degree = 15;
@@ -37,9 +37,9 @@ void PARSE_ARGS(int argc, char **argv)
     std::string desc("Hierarchical Spherical Deformation for Cortical Surface Registration "
 					 HSD_VERSION "\n"
 					 "Author: Ilwoo Lyu\n"
-					 "Please refer to the following paper for details:\n"
-					 "[1] Lyu et al., Hierarchical Spherical Deformation for Shape Correspondence, MICCAI 2018.\n"
-					 "[2] Lyu et al., Hierarchical Spherical Deformation for Cortical Surface Registration, Medical Image Analysis 2019.\n"
+					 "Please refer to the following papers for details:\n"
+					 "[1] Lyu et al., Hierarchical Spherical Deformation for Shape Correspondence, Medical Image Computing and Computer Assisted Intervention (MICCAI) 2018, LNCS11070, 853-861, 2018.\n"
+					 "[2] Lyu et al., Hierarchical Spherical Deformation for Cortical Surface Registration, Medical Image Analysis, 57, 72-88, 2019.\n"
 					 );
 
     CLI::App app(desc);
