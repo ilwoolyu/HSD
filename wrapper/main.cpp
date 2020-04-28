@@ -198,7 +198,7 @@ int main(int argc, char **argv)
 	openblas_set_num_threads(nThreads);
 #endif
 
-    HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess, icomesh, nCThreads);
+    HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess, icomesh, nCThreads, resampling);
     hsd.run();
 
     // delete memory allocation

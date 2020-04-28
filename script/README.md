@@ -85,6 +85,7 @@ lh.coeff.txt  lh.sphere.reg  lh.sphere.reg.vtk
 * To use pre-defined icosahedron mesh, setup environmental variable `export HSD_SPHERE_ROOT=PATH_TO_ICO_SPHERE`, which avoids computing icosahedral mesh. A set of template icosahedral meshes is provided in this release (see `sphere` folder in this repository).
 * To change `OUTPUT_DIR`, add `--out` (default: `INPUT_DIR`) to the command.
 * To change sub-directory name, add `--subfolder` (default: `HSD`) to the command.
+* :bulb: To accelerate the processing with memory efficiency, add `--resample` to the command. This option resamples geometric feature maps.
 
 ## Requirements
 * The script works on HSD `v1.2.6` or higher.

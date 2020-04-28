@@ -7,7 +7,7 @@ We present hierarchical spherical deformation for group-wise shape correspondenc
 
 ## Environment
 * Parallel processing: this tool supports OpenMP and will perform the best efficiency with CUDA.
-* Memory: it requires about 0.5Gb per subject at spherical harmonics degree 15.
+* Memory: it requires about 0.5Gb per subject at spherical harmonics degree 15. The memory consumption can be reduced by adding `--resample` to the command.
 ## Installation
 You can download and compile the source code using <a href="https://cmake.org/">CMake</a>. Or you can pull <a href="https://hub.docker.com/r/ilwoolyu/cmorph/">docker image</a>:
 ```
@@ -56,6 +56,11 @@ To enable multi-thread support (OpenMP):
 ```
 $ HSD --nThreads <# of threads>
 ```
+To reduce memory allocation:
+```
+$ HSD --resample
+```
+This option enables resampling of the input geometric properties using the provided icosahedral mesh (`--icosahedron` or `--icomesh`). Both processing time and memory consumption can be reduced signficantly.
 ### Multi-resolution approach
 If multi-feature maps are available, surface registration can be performed in a multi-resolution manner. Once again, we assume N=3 with the following features: <curvature map of inflated surfaces: `s1.inflated.curv.txt`, `s2.inflated.curv.txt`, `s3.inflated.curv.txt`>, <sulcal depth map: `s1.sulc.txt`, `s2.sulc.txt`, `s3.sulc.txt`>, and <curvature map of cortical surfaces: `s1.curv.txt`, `s2.curv.txt`, `s3.curv.txt`>. Let's coregister *inflated.curv* maps first at low resolution `--icosahedron 4`:
 ```

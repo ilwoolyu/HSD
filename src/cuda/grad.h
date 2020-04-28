@@ -5,10 +5,10 @@ class Gradient
 {
 public:
 	Gradient();
-	Gradient(int nVertex, int nFace, int nSamples, int degree);
+	Gradient(int nVertex, int nFace, int nSamples, int degree, const double *Y = NULL, const int *face = NULL);
 	~Gradient();
-	void updateGradientProperties(const float *vertex, int nVertex, const int *face, int nFace, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *M, bool hessian, int sid = 0);
-	void updateGradientDsiplacement(const float *vertex0, const float *vertex1, int nVertex, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const float *u1, const float *u2, double *gradient, double *M, bool hessian, int sid = 0);
+	void updateGradientProperties(const float *vertex, int nVertex, const int *face, int nFace, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *M, bool hessian, int sid = 0, bool resampling = false);
+	void updateGradientDsiplacement(const float *vertex0, const float *vertex1, int nVertex, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const float *u1, const float *u2, double *gradient, double *M, bool hessian, int sid = 0, bool resampling = false);
 	static void ATB(double *h_A, int nr_rows_A, int nr_cols_A, double *h_B, int nr_cols_B, double *h_C);
 	static void ATDA(double *h_A, double *h_D, int nr_rows_A, int nr_cols_A, double *h_B);
 private:
@@ -17,7 +17,7 @@ private:
 	static void _SA(double scalar, double *d_A, int nr_rows, int nr_cols, cudaStream_t stream = 0);
 	static void _PA(double *d_A, double *d_B, int nr_rows, int nr_cols, cudaStream_t stream = 0);
 	void _ATDA(double *d_A, double *d_D, int nr_rows_A, int nr_cols_A, double *d_B, double *d_C, int sid = 0);
-	void allocMemory(int nVertex, int nFace, int nSamples, int degree);
+	void allocMemory(int nVertex, int nFace, int nSamples, int degree, const double *Y = NULL, const int *face = NULL);
 	void freeMemory(void);
 
 private:

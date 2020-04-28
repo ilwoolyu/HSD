@@ -27,6 +27,7 @@ std::string tmpVariance;
 std::string icoMesh;
 bool realtimeCoeff = false;
 bool noguess = false;
+bool resampling = false;
 int nThreads = 0;
 std::vector<int> listFixedSubj;
 int nCThreads = 0;
@@ -69,9 +70,10 @@ void PARSE_ARGS(int argc, char **argv)
 	app.add_option("--icomesh", icoMesh, "provides a pre-defined icosahedron mesh")->check(CLI::ExistingFile);
 	app.add_flag("--writecoeff", realtimeCoeff, "enables real-time coefficient writing whenever the cost function is minimized, which may lead to significant IO overhead");
 	app.add_flag("--noguess", noguess, "disables an initial guess for rigid alignment");
-	app.add_option("--nThreads", nThreads, "sets the number of OpenMP cores")->check(CLI::NonNegativeNumber);
+	app.add_flag("--resample", resampling, "enables resampling of geometric properties using the current icosahedron level");
+	app.add_option("--nThreads", nThreads, "sets the number of OpenMP cores (0: OMP_NUM_THREADS or 1)", true)->check(CLI::NonNegativeNumber);
 #ifdef _USE_CUDA_BLAS
-	app.add_option("--nStreams", nCThreads, "sets the number of CUDA streams (0: use full GPU capacity)")->check(CLI::NonNegativeNumber);
+	app.add_option("--nStreams", nCThreads, "sets the number of CUDA streams (0: use full GPU capacity)", true)->check(CLI::NonNegativeNumber);
 #endif
 	app.add_option("--fixedSubjects", listFixedSubj, "specifies indices (starting from 0) of the subjects not being deformed during the optimization (typically for template models)")->check(CLI::NonNegativeNumber);
 	try

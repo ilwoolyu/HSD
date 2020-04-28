@@ -27,6 +27,7 @@ HSD::HSD(void)
 	m_output = NULL;
 	m_outputcoeff = NULL;
 	m_pole = NULL;
+	m_ico_Y = NULL;
 	m_degree = 0;
 	m_eta = 1;
 	m_lambda1 = 1;
@@ -37,10 +38,11 @@ HSD::HSD(void)
 	m_guess = true;
 	m_realtime_coeff = false;
 	m_pairwise = false;
+	m_resampling = false;
 	m_multi_res = true;
 }
 
-HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess, const char *ico_mesh, int nCThreads)
+HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess, const char *ico_mesh, int nCThreads, bool resampling)
 {
 	m_maxIter = maxIter;
 	m_nSubj = nSubj;
@@ -55,11 +57,13 @@ HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties,
 	m_fine_res = 6;
 	m_guess = guess;
 	m_pole = NULL;
+	m_ico_Y = NULL;
 	m_eta = (landmark == NULL)? 1: weightMap;
 	m_degree_inc = 0;	// starting degree for the incremental optimization
 	m_realtime_coeff = realtimeCoeff;
 	m_icosahedron = icosahedron;
 	m_pairwise = false;
+	m_resampling = resampling;
 	m_multi_res = true;
 	init(sphere, property, weight, landmark, weightLoc, coeff, surf, icosahedron, fixedSubj, tmpVariance, ico_mesh, nCThreads);
 }
@@ -114,6 +118,7 @@ HSD::~HSD(void)
 		delete [] m_spharm[subj].flip;
 		delete [] m_spharm[subj].area0;
 		delete [] m_spharm[subj].area1;
+		if (m_resampling) delete m_spharm[subj].sphere0;
 #ifdef _USE_CUDA_BLAS
 		cudaFreeHost(m_spharm[subj].tree_cache);
 		cudaFreeHost(m_spharm[subj].vertex0);
@@ -124,10 +129,12 @@ HSD::~HSD(void)
 #else
 		delete [] m_spharm[subj].tree_cache;
 		delete [] m_spharm[subj].property;
-		delete [] m_spharm[subj].Y;
+		if ((m_resampling && m_pairwise && m_spharm[subj].fixed) || !m_resampling)
+			delete [] m_spharm[subj].Y;
 #endif
 	}
 	delete [] m_spharm;
+	if (m_resampling) delete [] m_ico_Y;
 }
 
 void HSD::run(void)
@@ -221,13 +228,13 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_pole = new float[m_nSubj * 3 * 2];	// pole information
 	m_Tbasis = new float[m_nSubj * 3 * 2];	// tangent plane for the exponential map
 #endif
-	
+
 	// set all the coefficient to zeros
 	memset(m_coeff, 0, sizeof(double) * m_csize * 3);
 	memset(m_coeff_prev_step, 0, sizeof(double) * m_csize * 3);
 	memset(m_gradient, 0, sizeof(double) * m_csize * 3);
 	memset(m_updated, 0, sizeof(bool) * m_nSubj);
-	
+
 	// copy fixed subject information if any
 	m_nDeformableSubj = m_nSubj;		// # of subjects will be deformed
 	if (fixedSubj != NULL)
@@ -249,129 +256,6 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	else
 	{
 		for (int i = 0; i < m_nSubj; i++) m_spharm[i].fixed = false;
-	}
-	
-	if (m_nDeformableSubj == 1 && m_nSubj == 2) m_pairwise = true;
-	if (m_pairwise)
-	{
-		cout << "Running on pair-wise registration" << endl;
-		m_multi_res = true;
-		//m_lambda2 *= 0.32;
-	}
-	
-	cout << "Initialzation of subject information\n";
-
-	cout << "-Loading spherical mesh\n";
-	int dot = m_nSubj / 20 + (m_nSubj % 20 != 0);
-	for (int subj = 0; subj < m_nSubj; subj++)
-	{
-		// spehre and surface information
-		m_spharm[subj].sphere = new Mesh();
-		if (sphere != NULL)
-		{
-			m_spharm[subj].sphere->openFile(sphere[subj]);
-			// make sure a unit sphere
-			//m_spharm[subj].sphere->centering();
-		}
-		else
-		{
-			cout << " Fatal error: No sphere mapping is provided!\n";
-			exit(1);
-		}
-		if (subj % dot == 0)
-		{
-			cout << ".";
-			fflush(stdout);
-		}
-	}
-	cout << endl;
-
-	#pragma omp parallel for
-	for (int subj = 0; subj < m_nSubj; subj++)
-	{
-		string log;
-		log += "Subject " + to_string(subj) + " - " + sphere[subj] + "\n";
-		log += "-Sphere information\n";
-		for (int i = 0; i < m_spharm[subj].sphere->nVertex(); i++)
-		{
-			Vertex *v = (Vertex *)m_spharm[subj].sphere->vertex(i);	// vertex information on the sphere
-			const float *v0 = v->fv();
-			Vector V(v0); V.unit();
-			v->setVertex(V.fv());
-		}
-		log += "--Total vertices: " + to_string(m_spharm[subj].sphere->nVertex()) + "\n";
-		// previous spherical harmonic deformation fields
-		log += "-Spherical harmonics information\n";
-		initSphericalHarmonics(subj, coeff);
-#ifdef _USE_CUDA_BLAS
-		int nVertex = m_spharm[subj].sphere->nVertex();
-		int nFace = m_spharm[subj].sphere->nFace();
-		status = cudaMallocHost((void**)&m_spharm[subj].vertex0, nVertex * 3 * sizeof(float));
-		if (status != cudaSuccess)
-		{
-			cout << "Fatal error: allocating pinned host memory" << endl;
-			exit(1);
-		}
-		status = cudaMallocHost((void**)&m_spharm[subj].vertex1, nVertex * 3 * sizeof(float));
-		if (status != cudaSuccess)
-		{
-			cout << "Fatal error: allocating pinned host memory" << endl;
-			exit(1);
-		}
-		status = cudaMallocHost((void**)&m_spharm[subj].face, nFace * 3 * sizeof(int));
-		if (status != cudaSuccess)
-		{
-			cout << "Fatal error: allocating pinned host memory" << endl;
-			exit(1);
-		}
-		for (int i = 0; i < nVertex; i++) memcpy(&m_spharm[subj].vertex0[i * 3], m_spharm[subj].vertex[i]->p0, sizeof(float) * 3);
-		for (int i = 0; i < nFace; i++) memcpy(&m_spharm[subj].face[i * 3], m_spharm[subj].sphere->face(i)->list(), sizeof(int) * 3);
-#endif
-
-		// landmarks
-		if (landmark != NULL)
-		{
-			log += "-Landmark information\n";
-			log += initLandmarks(subj, landmark);
-		}
-		
-		// optimal pole and tangent plane
-		initTangentPlane(subj);
-		
-		if (m_nSurfaceProperties > 0)
-		{
-			log += "-Location information\n";
-			m_spharm[subj].surf = new Mesh();
-			m_spharm[subj].surf->openFile(surf[subj]);
-		}
-		else m_spharm[subj].surf = NULL;
-		
-		if (m_nProperties + m_nSurfaceProperties > 0)
-		{
-			// AABB tree construction for speedup computation
-			log += "-AABB tree reconstruction\n";
-			m_spharm[subj].tree = new AABB_Sphere(m_spharm[subj].sphere);
-		}
-		else m_spharm[subj].tree = NULL;
-		
-		// triangle flipping
-		m_spharm[subj].flip = NULL;
-		log += "-Triangle flipping\n";
-		log += initTriangleFlipping(subj);
-		
-		// area
-		m_spharm[subj].area0 = NULL;
-		m_spharm[subj].area1 = NULL;
-		log += "-Surface area\n";
-		log += initArea(subj);
-		
-		// property information
-		log += "-Property information\n";
-		log += initProperties(subj, property, 0);
-
-		log += "----------\n";
-		
-		cout << log;
 	}
 
 	// icosahedron subdivision for evaluation on properties: this generates uniform sampling points over the sphere - m_propertySamples
@@ -418,6 +302,180 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		}
 	}
 	if (!m_multi_res) m_fine_res = m_icosahedron + 1;
+
+	if (m_nDeformableSubj == 1 && m_nSubj == 2) m_pairwise = true;
+	if (m_pairwise)
+	{
+		cout << "Running on pair-wise registration" << endl;
+		m_multi_res = true;
+		//m_lambda2 *= 0.32;
+	}
+	
+	float *ico_vertex = NULL;
+	int *ico_face = NULL;
+	if (m_resampling)
+	{
+		int nVertex = m_ico_mesh->nVertex();
+		int nFace = m_ico_mesh->nFace();
+		ico_vertex = new float[nVertex * 3];
+		ico_face = new int[nFace * 3];
+		for (int i = 0; i < nVertex; i++)
+		{
+			Vertex *v = (Vertex *)m_ico_mesh->vertex(i);
+			const float *v0 = v->fv();
+			Vector V(v0); V.unit();
+			v->setVertex(V.fv());
+
+			memcpy(&ico_vertex[i * 3], v->fv(), 3 * sizeof(float));
+		}
+		for (int i = 0; i < nFace; i++)
+		{
+			Face *f = (Face *)m_ico_mesh->face(i);
+			memcpy(&ico_face[i * 3], f->list(), 3 * sizeof(int));
+		}
+		m_ico_Y = new double[(m_degree + 1) * (m_degree + 1) * nVertex];
+		#pragma omp parallel for
+		for (int i = 0; i < nVertex; i++)
+		{
+			Vertex *v = (Vertex *)m_ico_mesh->vertex(i);
+			const float *v0 = v->fv();
+			double vd[3] = {v0[0], v0[1], v0[2]};
+			SphericalHarmonics::basis(m_degree, vd, &m_ico_Y[i * (m_degree + 1) * (m_degree + 1)]);
+		}
+	}
+
+	cout << "Initialzation of subject information\n";
+
+	cout << "-Loading spherical mesh\n";
+	int dot = m_nSubj / 20 + (m_nSubj % 20 != 0);
+	for (int subj = 0; subj < m_nSubj; subj++)
+	{
+		// spehre and surface information
+		m_spharm[subj].sphere = new Mesh();
+		if (sphere != NULL)
+		{
+			m_spharm[subj].sphere->openFile(sphere[subj]);
+			m_spharm[subj].sphere0 = m_spharm[subj].sphere;
+			// make sure a unit sphere
+			//m_spharm[subj].sphere->centering();
+		}
+		else
+		{
+			cout << " Fatal error: No sphere mapping is provided!\n";
+			exit(1);
+		}
+		if (subj % dot == 0)
+		{
+			cout << ".";
+			fflush(stdout);
+		}
+	}
+	cout << endl;
+
+	#pragma omp parallel for
+	for (int subj = 0; subj < m_nSubj; subj++)
+	{
+		string log;
+		log += "Subject " + to_string(subj) + " - " + sphere[subj] + "\n";
+		log += "-Sphere information\n";
+		for (int i = 0; i < m_spharm[subj].sphere->nVertex(); i++)
+		{
+			Vertex *v = (Vertex *)m_spharm[subj].sphere->vertex(i);	// vertex information on the sphere
+			const float *v0 = v->fv();
+			Vector V(v0); V.unit();
+			v->setVertex(V.fv());
+		}
+
+		// landmarks
+		if (landmark != NULL)
+		{
+			log += "-Landmark information\n";
+			log += initLandmarks(subj, landmark);
+		}
+
+		if (m_nProperties + m_nSurfaceProperties > 0)
+		{
+			// AABB tree construction for speedup computation
+			m_spharm[subj].tree = new AABB_Sphere(m_spharm[subj].sphere);
+			AABB_Sphere *tree = m_spharm[subj].tree;
+			Mesh *sphere = m_spharm[subj].sphere;
+
+			int nVertex = m_spharm[subj].sphere->nVertex();
+			if (m_resampling && ((m_pairwise && !m_spharm[subj].fixed) || !m_pairwise))
+			{
+				m_spharm[subj].sphere = new Mesh();
+				m_spharm[subj].sphere->setMesh(ico_vertex, ico_face, NULL, m_ico_mesh->nVertex(), m_ico_mesh->nFace(), 0, false);
+				m_spharm[subj].tree = new AABB_Sphere(m_spharm[subj].sphere);
+			}
+			log += "--Total vertices: " + to_string(m_spharm[subj].sphere->nVertex()) + "\n";
+			log += "-AABB tree reconstruction\n";
+
+			// property information
+			if (m_nSurfaceProperties > 0)
+			{
+				log += "-Location information\n";
+				m_spharm[subj].surf = new Mesh();
+				m_spharm[subj].surf->openFile(surf[subj]);
+			}
+			else m_spharm[subj].surf = NULL;
+
+			log += "-Property information\n";
+			log += initProperties(subj, property, nVertex, tree, sphere);
+			if (m_resampling && ((m_pairwise && !m_spharm[subj].fixed) || !m_pairwise)) delete tree;
+		}
+		else m_spharm[subj].tree = NULL;
+
+		// previous spherical harmonic deformation fields
+		log += "-Spherical harmonics information\n";
+		initSphericalHarmonics(subj, coeff, m_ico_Y);
+
+#ifdef _USE_CUDA_BLAS
+		int nVertex = m_spharm[subj].sphere->nVertex();
+		int nFace = m_spharm[subj].sphere->nFace();
+		status = cudaMallocHost((void**)&m_spharm[subj].vertex0, nVertex * 3 * sizeof(float));
+		if (status != cudaSuccess)
+		{
+			cout << "Fatal error: allocating pinned host memory" << endl;
+			exit(1);
+		}
+		status = cudaMallocHost((void**)&m_spharm[subj].vertex1, nVertex * 3 * sizeof(float));
+		if (status != cudaSuccess)
+		{
+			cout << "Fatal error: allocating pinned host memory" << endl;
+			exit(1);
+		}
+		for (int i = 0; i < nVertex; i++) memcpy(&m_spharm[subj].vertex0[i * 3], m_spharm[subj].vertex[i]->p0, sizeof(float) * 3);
+		if (!m_resampling)
+		{
+			status = cudaMallocHost((void**)&m_spharm[subj].face, nFace * 3 * sizeof(int));
+			if (status != cudaSuccess)
+			{
+				cout << "Fatal error: allocating pinned host memory" << endl;
+				exit(1);
+			}
+			for (int i = 0; i < nFace; i++) memcpy(&m_spharm[subj].face[i * 3], m_spharm[subj].sphere->face(i)->list(), sizeof(int) * 3);
+		}
+		else m_spharm[subj].face = NULL;
+#endif
+
+		// optimal pole and tangent plane
+		initTangentPlane(subj);
+
+		// triangle flipping
+		m_spharm[subj].flip = NULL;
+		log += "-Triangle flipping\n";
+		log += initTriangleFlipping(subj);
+		
+		// area
+		m_spharm[subj].area0 = NULL;
+		m_spharm[subj].area1 = NULL;
+		log += "-Surface area\n";
+		log += initArea(subj);
+		
+		log += "----------\n";
+		
+		cout << log;
+	}
 
 	cout << "Computing weight terms" << endl;
 	int nLandmark = m_spharm[0].landmark.size() * 3;	// # of landmarks: we assume all the subject has the same number, which already is checked above.
@@ -526,7 +584,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_cuda_grad = new Gradient*[m_nCThreads];
 	for (int i = 0; i < m_nCThreads; i++)
 	{
-		m_cuda_grad[i] = new Gradient(nVertex, nFace, m_nQuerySamples, m_degree);
+		m_cuda_grad[i] = new Gradient(nVertex, nFace, m_nQuerySamples, m_degree, m_ico_Y, ico_face);
 	}
 #else
 	m_nCThreads = 1;
@@ -535,6 +593,11 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_gradient_work = new double[csize * 3 + m_nMaxVertex];
 	for (int i = 0; i < m_nMaxVertex; i++) m_gradient_work[csize * 3 + i] = 1;
 #endif
+	if (m_resampling)
+	{
+		delete [] ico_vertex;
+		delete [] ico_face;
+	}
 
 	cout << "Feature vector creation\n";
 
@@ -584,7 +647,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	cout << "Initialization done!" << endl;
 }
 
-void HSD::initSphericalHarmonics(int subj, const char **coeff)
+void HSD::initSphericalHarmonics(int subj, const char **coeff, double *Y)
 {
 	// spherical harmonics information
 	int n = (m_degree + 1) * (m_degree + 1);	// total number of coefficients (this must be the same across all the subjects at the end of this program)
@@ -637,16 +700,20 @@ void HSD::initSphericalHarmonics(int subj, const char **coeff)
 	m_spharm[subj].degree = m_degree;
 	
 	int nVertex = m_spharm[subj].sphere->nVertex();
-#ifdef _USE_CUDA_BLAS
-	cudaError_t status = cudaMallocHost((void**)&m_spharm[subj].Y, (m_degree + 1) * (m_degree + 1) * nVertex * sizeof(double));
-	if (status != cudaSuccess)
+	if (Y == NULL || m_spharm[subj].fixed)
 	{
-		cout << "Fatal error: allocating pinned host memory" << endl;
-		exit(1);
-	}
+#ifdef _USE_CUDA_BLAS
+		cudaError_t status = cudaMallocHost((void**)&m_spharm[subj].Y, (m_degree + 1) * (m_degree + 1) * nVertex * sizeof(double));
+		if (status != cudaSuccess)
+		{
+			cout << "Fatal error: allocating pinned host memory" << endl;
+			exit(1);
+		}
 #else
-	m_spharm[subj].Y = new double[(m_degree + 1) * (m_degree + 1) * nVertex];
+		m_spharm[subj].Y = new double[(m_degree + 1) * (m_degree + 1) * nVertex];
 #endif
+	}
+	else m_spharm[subj].Y = Y;
 	// build spherical harmonic basis functions for each vertex
 	for (int i = 0; i < nVertex; i++)
 	{
@@ -660,7 +727,7 @@ void HSD::initSphericalHarmonics(int subj, const char **coeff)
 		p->subject = subj;
 		//SphericalHarmonics::basis(m_degree, p->p, p->Y);
 		double vd[3] = {v0[0], v0[1], v0[2]};
-		SphericalHarmonics::basis(m_degree, vd, p->Y);
+		if (Y == NULL || m_spharm[subj].fixed) SphericalHarmonics::basis(m_degree, vd, p->Y);
 		m_spharm[subj].vertex.push_back(p);
 	}
 }
@@ -700,11 +767,14 @@ void HSD::initTangentPlane(int subj)
 	m_spharm[subj].tan2[0] = tan2[0]; m_spharm[subj].tan2[1] = tan2[1]; m_spharm[subj].tan2[2] = tan2[2];
 }
 
-string HSD::initProperties(int subj, const char **property, int nHeaderLines)
+string HSD::initProperties(int subj, const char **property, int nLines, AABB_Sphere *tree, Mesh *sphere, int nHeaderLines)
 {
 	string log;
 	int nVertex = m_spharm[subj].sphere->nVertex();	// this is the same as the number of properties
 	int nFace = m_spharm[subj].sphere->nFace();
+	bool resampling = (nLines != nVertex);
+	float *property_raw;
+
 	if (m_nProperties + m_nSurfaceProperties > 0)
 	{
 		m_spharm[subj].meanProperty = new float[m_nProperties + m_nSurfaceProperties];
@@ -722,7 +792,11 @@ string HSD::initProperties(int subj, const char **property, int nHeaderLines)
 #else
 		m_spharm[subj].property = new float[(m_nProperties + m_nSurfaceProperties) * nVertex];
 #endif
-	}
+		if (resampling)
+			property_raw = new float[(m_nProperties + m_nSurfaceProperties) * nLines];
+		else
+			property_raw = m_spharm[subj].property;
+		}
 	else
 	{
 		m_spharm[subj].meanProperty = NULL;
@@ -750,9 +824,9 @@ string HSD::initProperties(int subj, const char **property, int nHeaderLines)
 			}
 		}
 		// load property information
-		for (int j = 0; j < nVertex; j++) 
+		for (int j = 0; j < nLines; j++)
 		{
-			if (fscanf(fp, "%f", &m_spharm[subj].property[nVertex * i + j]) == -1)
+			if (fscanf(fp, "%f", &property_raw[nLines * i + j]) == -1)
 			{
 				cout << "Fatal error: something goes wrong during I/O processing" << endl;
 				fclose(fp);
@@ -763,14 +837,27 @@ string HSD::initProperties(int subj, const char **property, int nHeaderLines)
 	}
 	for (int i = 0; i < m_nSurfaceProperties; i++)	// x, y, z dimensions
 	{
-		for (int j = 0; j < nVertex; j++)
+		for (int j = 0; j < nLines; j++)
 		{
 			Vertex *v = (Vertex *)m_spharm[subj].surf->vertex(j);
 			const float *v0 = v->fv();
-			m_spharm[subj].property[nVertex * (m_nProperties + i) + j] = v0[i];
+			property_raw[nLines * (m_nProperties + i) + j] = v0[i];
 		}
 	}
-	
+	if (resampling)
+	{
+		for (int j = 0; j < nVertex; j++)
+		{
+			float coeff[3];
+			Vertex *v = (Vertex *)m_spharm[subj].sphere->vertex(j);
+			const float *v0 = v->fv();
+			int fid = tree->closestFace((float *)v0, coeff);
+			for (int i = 0; i < m_nProperties + m_nSurfaceProperties; i++)
+				m_spharm[subj].property[nVertex * i + j] = propertyInterpolation(&property_raw[nLines * i], fid, coeff, sphere);
+		}
+		delete [] property_raw;
+	}
+
 	// find the best statistics across subjects
 	for (int i = 0; i < m_nProperties + m_nSurfaceProperties; i++)
 	{
@@ -1096,10 +1183,8 @@ void HSD::updateDeformation(int subject, bool enforce)
 		float v1[3];
 		const float *v0 = v->fv();
 		updateCoordinate(m_spharm[subject].vertex[i]->p, v1, m_spharm[subject].vertex[i]->Y, (const double *)m_spharm[subject].coeff, m_degree, m_spharm[subject].pole, m_spharm[subject].tan1, m_spharm[subject].tan2); // update using the current incremental degree
-		{
-			Vector V(v1); V.unit();
-			v->setVertex(V.fv());
-		}
+		Vector V(v1); V.unit();
+		v->setVertex(V.fv());
 	}
 	m_updated[subject] = updated;
 	
@@ -1781,7 +1866,7 @@ void HSD::updateGradient(int deg_beg, int deg_end, double lambda, int subj_id)
 		{
 			if (m_spharm[subj].fixed) continue;
 			if (m_spharm[subj].step == 0) continue;
-				updateNewGradient(deg_beg, deg_end, lambda, subj);
+			updateNewGradient(deg_beg, deg_end, lambda, subj);
 		}
 	}
 }
@@ -2003,7 +2088,7 @@ void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id, i
 	const float *vertex = m_spharm[subj].vertex1;
 	const int *face = m_spharm[subj].face;
 
-	m_cuda_grad[sid]->updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res, ssid);
+	m_cuda_grad[sid]->updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res, ssid, m_resampling);
 }
 #endif
 
@@ -2205,7 +2290,7 @@ void HSD::updateGradientDisplacement_cuda(int deg_beg, int deg_end, int subj_id,
 	const float *vertex0 = m_spharm[subj].vertex0;
 	const float *vertex1 = m_spharm[subj].vertex1;
 
-	m_cuda_grad[sid]->updateGradientDsiplacement(vertex0, vertex1, nVertex, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res, ssid);
+	m_cuda_grad[sid]->updateGradientDsiplacement(vertex0, vertex1, nVertex, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res, ssid, m_resampling);
 }
 #endif
 
@@ -2678,7 +2763,25 @@ void HSD::saveCoeff(const char *filename, int id)
 
 void HSD::saveSphere(const char *filename, int id)
 {
-	m_spharm[id].sphere->saveFile(filename, "vtk");
+	if (m_resampling)
+	{
+		int nVertex = m_spharm[id].sphere0->nVertex();
+		double *Y = new double[(m_degree + 1) * (m_degree + 1) * nVertex];
+		#pragma omp parallel for
+		for (int i = 0; i < nVertex; i++)
+		{
+			Vertex *v = (Vertex *)m_spharm[id].sphere0->vertex(i);	// vertex information on the sphere
+			const float *v0 = v->fv();
+			double vd[3] = {v0[0], v0[1], v0[2]};
+			SphericalHarmonics::basis(m_degree, vd, &Y[i * (m_degree + 1) * (m_degree + 1)]);
+			float v1[3];
+			updateCoordinate(v0, v1, &Y[i * (m_degree + 1) * (m_degree + 1)], (const double *)m_spharm[id].coeff, m_degree, m_spharm[id].pole, m_spharm[id].tan1, m_spharm[id].tan2);
+			Vector V(v1); V.unit();
+			v->setVertex(V.fv());
+		}
+		delete [] Y;
+	}
+	m_spharm[id].sphere0->saveFile(filename, "vtk");
 }
 
 double HSD::optimalMeanCost(double *coeff, int subj)

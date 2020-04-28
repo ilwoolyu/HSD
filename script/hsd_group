@@ -10,13 +10,14 @@ ldprior=625
 docker=''
 flist1=''
 flist2=''
+resample=''
 
 function usage()
 {
     echo "USAGE: $0 [options] hemi FreeSurfer_subject_root_path"
     echo ""
     echo "HSD: Group-wise Surface Registration for FreeSurfer"
-    echo "Version: 1.0"
+    echo "Version: 1.1"
     echo "Author: Ilwoo Lyu"
     echo ""
     echo "Optional Arguments"
@@ -27,6 +28,7 @@ function usage()
     echo -e "  --subfolder <string> \tsub-folder name being created in output root path (default: $out_suffix)"
     echo -e "  --out <string>       \toutput root path (default: FreeSurfer_subject_root_path)"
     echo -e "  --docker <tag>       \tdocker image tag (e.g. 1.5)"
+    echo -e "  --resample           \tresampling of geometric features for faster, less memory-intensive processing (HSD v1.3.0 or higher)"
     echo -e
 }
 
@@ -170,6 +172,10 @@ while [[ $# -gt 0 ]]; do
             docker="$2"
             shift; shift
             ;;
+        --resample)
+            resample='--resample'
+            shift
+            ;;
         -*|--*=) # unsupported flags
             echo "Error: unsupported flag $1" >&2
             exit 1
@@ -201,6 +207,12 @@ if [ ! -d $out ]; then mkdir -p $out; fi
 if [ -z `which mris_convert` ]; then echo 'Error: mris_convert is mssing'; exit 1; fi
 if [ -z `which mris_rescale` ]; then echo 'Error: mris_rescale is mssing'; exit 1; fi
 if [ -z $docker ] && [ -z `which HSD` ]; then echo 'Error: HSD is mssing'; exit 1; fi
+
+if [ ! -z $docker ] && ! [[ $docker > "1.5" ]] && [ ! -z $resample ]
+then
+	echo Docker v$docker does not support --resample
+	exit 1
+fi
 
 # configuration summary
 echo "Threads:" $thread
@@ -295,23 +307,23 @@ done
 if [ -z $docker ]
 then
 	# Resolution 1
-	HSD -d $deg -s $s -p $g1 --idprior $ldprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4
+	HSD -d $deg -s $s -p $g1 --idprior $ldprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4 $resample
 	# Resolution 2
-	HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5
+	HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5 $resample
 	# Resolution 3
-	HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6
+	HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6 $resample
 	# Resolution 4
-	HSD -c $c -d $deg -s $s -p $g3 --idprior $ldprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7
+	HSD -c $c -d $deg -s $s -p $g3 --idprior $ldprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7 $resample
 else
 	if [ -z $HSD_SPHERE_ROOT ]; then HSD_SPHERE_ROOT=''; fi
 	# Resolution 1
-	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -d $deg -s $s -p $g1 --idprior $ldprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -d $deg -s $s -p $g1 --idprior $ldprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4 $resample
 	# Resolution 2
-	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5 $resample
 	# Resolution 3
-	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6 $resample
 	# Resolution 4
-	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g3 --idprior $ldprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g3 --idprior $ldprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7 $resample
 fi
 
 # Conversion

@@ -29,7 +29,7 @@ class HSD
 {
 public:
 	HSD(void);
-	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true, const char *ico_mesh = NULL, int nCThreads = 1);
+	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true, const char *ico_mesh = NULL, int nCThreads = 1, bool resampling = false);
 	~HSD(void);
 	void run(void);
 	void saveCoeff(const char *filename, int id);
@@ -40,9 +40,9 @@ public:
 private:
 	// class members for initilaization
 	void init(const char **sphere, const char **property, const float *weight, const char **landmark, float weightLoc, const char **coeff, const char **surf, int samplingDegree = 3, const bool *fixedSubj = NULL, const char *tmpVariance = NULL, const char *ico_mesh = NULL, int nCThreads = 1);
-	void initSphericalHarmonics(int subj, const char **coeff);
+	void initSphericalHarmonics(int subj, const char **coeff, double *Y = NULL);
 	string initTriangleFlipping(int subj);
-	string initProperties(int subj, const char **property, int nHeaderLines);
+	string initProperties(int subj, const char **property, int nLines, AABB_Sphere *tree = NULL, Mesh *sphere = NULL, int nHeaderLines = 0);
 	string initLandmarks(int subj, const char **landmark);
 	void initTangentPlane(int subj);
 	string initArea(int subj);
@@ -108,6 +108,7 @@ private:
 		float *tan1, *tan2;
 		vector<point *> vertex;
 		AABB_Sphere *tree;
+		Mesh *sphere0;
 		Mesh *sphere;
 		Mesh *surf;
 		float *property;
@@ -157,11 +158,13 @@ private:
 	double *m_mean;
 	double *m_variance;
 	double *m_variance_area;
+	double *m_ico_Y;
 	bool *m_updated;
 	bool m_realtime_coeff;
 	bool m_pairwise;
 	bool m_multi_res;
 	bool m_guess;
+	bool m_resampling;
 	spharm *m_spharm;
 	vector<float> m_propertySamples;
 	
