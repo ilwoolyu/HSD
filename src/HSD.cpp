@@ -13,6 +13,7 @@
 #include <cstring>
 #include <lapacke.h>
 #include <cblas.h>
+#include <map>
 #include "HSD.h"
 #include "SphericalHarmonics.h"
 #include "bobyqa.h"
@@ -2624,7 +2625,7 @@ int HSD::icosahedron(int degree, Mesh *mesh)
 	for (int d = 0; d < degree; d++)
 	{
 		int nFaces = triangles.size();
-		vector<SurfaceUtil::edge> edgeList;
+		map<pair<int, int>, SurfaceUtil::edge> edgeList;
 
 		for (int i = 0 ; i < nFaces; i++)
 		{
@@ -2642,49 +2643,56 @@ int HSD::icosahedron(int degree, Mesh *mesh)
 			e2.vid1 = c->id; e2.vid2 = a->id; if (c->id > a->id) swap(e2.vid1, e2.vid2);
 			e3.vid1 = b->id; e3.vid2 = c->id; if (b->id > c->id) swap(e3.vid1, e3.vid2);
 			
-			vector<SurfaceUtil::edge>::iterator it;
+			map<pair<int, int>, SurfaceUtil::edge>::iterator it;
 			
 			// update new list
 			int id1, id2, id3;
-			it = find (edgeList.begin(), edgeList.end(), e1);
+			it = edgeList.find(make_pair(e1.vid1, e1.vid2));
 			if (it == edgeList.end())
 			{
 				vert *v1 = new vert();
 				v1->v = ab; v1->id = id++; vertices.push_back(v1);
 				e1.fid1 = vertices.size() - 1;
-				edgeList.push_back(e1);
+				edgeList.insert(make_pair(make_pair(e1.vid1, e1.vid2), e1));
 				id1 = e1.fid1;
 			}
-			else id1 = (*it).fid1;
-			it = find (edgeList.begin(), edgeList.end(), e2);
+			else id1 = it->second.fid1;
+			it = edgeList.find(make_pair(e2.vid1, e2.vid2));
 			if (it == edgeList.end())
 			{
 				vert *v2 = new vert();
 				v2->v = ca; v2->id = id++; vertices.push_back(v2);
 				e2.fid1 = vertices.size() - 1;
-				edgeList.push_back(e2);
+				edgeList.insert(make_pair(make_pair(e2.vid1, e2.vid2), e2));
 				id2 = e2.fid1;
 			}
-			else id2 = (*it).fid1;
-			it = find (edgeList.begin(), edgeList.end(), e3);
+			else id2 = it->second.fid1;
+			it = edgeList.find(make_pair(e3.vid1, e3.vid2));
 			if (it == edgeList.end())
 			{
 				vert *v3 = new vert();
 				v3->v = bc; v3->id = id++; vertices.push_back(v3);
 				e3.fid1 = vertices.size() - 1;
-				edgeList.push_back(e3);
+				edgeList.insert(make_pair(make_pair(e3.vid1, e3.vid2), e3));
 				id3 = e3.fid1;
 			}
-			else id3 = (*it).fid1;
+			else id3 = it->second.fid1;
 			
 			// overwrite the original
 			f[0] = vertices[id1]; f[1] = vertices[id2]; f[2] = vertices[id3];
+			if ((f[1]->v - f[0]->v).cross(f[2]->v - f[0]->v) * f[0]->v < 0) swap(f[1], f[2]);
 			/*Vector f1[3] = {a, v1, v2}; triangles.push_back(f1);
 			Vector f2[3] = {c, v2, v3}; triangles.push_back(f2);
 			Vector f3[3] = {b, v3, v1}; triangles.push_back(f3);*/
-			vert **f1 = new vert*[3]; f1[0] = a; f1[1] = vertices[id1]; f1[2] = vertices[id2]; triangles.push_back(f1);
-			vert **f2 = new vert*[3]; f2[0] = c; f2[1] = vertices[id2]; f2[2] = vertices[id3]; triangles.push_back(f2);
-			vert **f3 = new vert*[3]; f3[0] = b; f3[1] = vertices[id3]; f3[2] = vertices[id1]; triangles.push_back(f3);
+			vert **f1 = new vert*[3]; f1[0] = a; f1[1] = vertices[id1]; f1[2] = vertices[id2];
+			if ((f1[1]->v - f1[0]->v).cross(f1[2]->v - f1[0]->v) * f1[0]->v < 0) swap(f1[1], f1[2]);
+			triangles.push_back(f1);
+			vert **f2 = new vert*[3]; f2[0] = c; f2[1] = vertices[id2]; f2[2] = vertices[id3];
+			if ((f2[1]->v - f2[0]->v).cross(f2[2]->v - f2[0]->v) * f2[0]->v < 0) swap(f2[1], f2[2]);
+			triangles.push_back(f2);
+			vert **f3 = new vert*[3]; f3[0] = b; f3[1] = vertices[id3]; f3[2] = vertices[id1];
+			if ((f3[1]->v - f3[0]->v).cross(f3[2]->v - f3[0]->v) * f3[0]->v < 0) swap(f3[1], f3[2]);
+			triangles.push_back(f3);
 		}
 		edgeList.clear();
 	}
