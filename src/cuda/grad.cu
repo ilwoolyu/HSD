@@ -29,7 +29,7 @@ __global__ void PA_kernel(double *A, double *B, int num_rows, int num_cols)
 		A[row * num_cols + col] += B[row * num_cols + col];
 }
 
-__global__ void gradient_properties_kernel(const float *vertex, int nVertex, const int *face, int nFace, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *gradient_raw, double *gradient_diag, double *dEdx)
+__global__ void gradient_properties_kernel(const float *vertex, int nVertex, const int *face, int nFace, const int *neighbor, const int *nNeighbor, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *gradient_raw, double *gradient_diag, double *dEdx)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i < nSamples)
@@ -53,10 +53,9 @@ __global__ void gradient_properties_kernel(const float *vertex, int nVertex, con
 		const float *v3 = &vertex[id3 * 3];
 		
 		cuVector N = cuVector(v1, v2).cross(cuVector(v2, v3));
-		float area = N.norm();
 		N.unit();
 		cuVector Yproj = cuVector(y) * ((cuVector(v1) * N) / (cuVector(y) * N));
-		coord.cart2bary((float *)v1, (float *)v2, (float *)v3, (float *)Yproj.fv(), cY);
+		coord.cart2bary((float *)v1, (float *)v2, (float *)v3, (float *)Yproj.fv(), cY, 1e-5);
 
 		const double *Y1 = &Y[nCoeff * id1];
 		const double *Y2 = &Y[nCoeff * id2];
@@ -87,39 +86,65 @@ __global__ void gradient_properties_kernel(const float *vertex, int nVertex, con
 		float z_dot[3];
 		coord.rotPoint(z_hat, rot, z_dot);
 
-		// dp/dx
-		float nf[3]; const float *nf_ = N.fv();
-		for (int j = 0; j < 3; j++) nf[j] = nf_[j];
-		cuVector V1(v1), Yv(y);
-		float v1N = V1 * N;
-		float yN = Yv * N;
-		double r1 = v1N / yN;
-		double r2 = r1 / yN;
-		double dpdx[3][3] = {{r1 - r2 * y[0] * nf[0], -r2 * y[0] * nf[1], -r2 * y[0] * nf[2]},
-							{-r2 * y[1] * nf[0], r1 - r2 * y[1] * nf[1], -r2 * y[1] * nf[2]},
-							{-r2 * y[2] * nf[0], -r2 * y[2] * nf[1], r1 - r2 * y[2] * nf[2]}};
-		// dm/dp
-		cuVector YP1(Yproj.fv(), v1), YP2(Yproj.fv(), v2), YP3(Yproj.fv(), v3);
-		float m1 = property[id1];
-		float m2 = property[id2];
-		float m3 = property[id3];
+		double grad_m[3] = {0, 0, 0};
+		int nid[2] = {id2, id3};
+		const int *neighbor_local = nid;
+		int nNeighbor_local = 2;
+		double r1 = (cuVector(v1) * N) / (cuVector(y) * N);
+		if (cY[0] == 1 || cY[1] == 1 || cY[2] == 1)
+		{
+			if (cY[0] == 1) id1 = face[fid[i] * 3 + 0];
+			else if (cY[1] == 1) id1 = face[fid[i] * 3 + 1];
+			else if (cY[2] == 1) id1 = face[fid[i] * 3 + 2];
+			neighbor_local = &neighbor[nNeighbor[id1 * 2]];
+			nNeighbor_local = nNeighbor[id1 * 2 + 1];
+			r1 = 1;
+		}
 
-		cuVector V1V2(v1, v2), V2V3(v2, v3), V3V1(v3, v1);
-		float v1v2_norm = V1V2.norm();
-		float v2v3_norm = V2V3.norm();
-		float v3v1_norm = V3V1.norm();
-		cuVector DA1DP = V2V3.cross(N).unit() * v2v3_norm * m1;
-		cuVector DA2DP = V3V1.cross(N).unit() * v3v1_norm * m2;
-		cuVector DA3DP = V1V2.cross(N).unit() * v1v2_norm * m3;
-		cuVector DMDP = (DA1DP + DA2DP + DA3DP) / area;
-		//cuVector DMDP = (DA1DP + DA2DP + DA3DP);	// canceled out: area
-	
-		const float *dmdp = DMDP.fv();
-	
-		// grad_m
-		double grad_m[3] = {dpdx[0][0] * dmdp[0] + dpdx[0][1] * dmdp[1] + dpdx[0][2] * dmdp[2],
-							dpdx[1][0] * dmdp[0] + dpdx[1][1] * dmdp[1] + dpdx[1][2] * dmdp[2],
-							dpdx[2][0] * dmdp[0] + dpdx[2][1] * dmdp[1] + dpdx[2][2] * dmdp[2]};
+		v1 = &vertex[id1 * 3];
+		float area = 0;
+		for (int j = 0; j < nNeighbor_local; j++)
+		{
+			id2 = neighbor_local[j];
+			id3 = neighbor_local[(j + 1) % nNeighbor_local];
+			v2 = &vertex[id2 * 3];
+			v3 = &vertex[id3 * 3];
+
+			// dp/dx
+			cuVector N = cuVector(v1, v2).cross(cuVector(v2, v3));
+			area += N.norm();
+			float nf[3]; const float *nf_ = N.unit().fv();
+			for (int j = 0; j < 3; j++) nf[j] = nf_[j];
+			double r2 = r1 / (cuVector(y) * N);
+			double dpdx[3][3] = {{r1 - r2 * y[0] * nf[0], -r2 * y[0] * nf[1], -r2 * y[0] * nf[2]},
+								{-r2 * y[1] * nf[0], r1 - r2 * y[1] * nf[1], -r2 * y[1] * nf[2]},
+								{-r2 * y[2] * nf[0], -r2 * y[2] * nf[1], r1 - r2 * y[2] * nf[2]}};
+			// dm/dp
+			cuVector YP1(Yproj.fv(), v1), YP2(Yproj.fv(), v2), YP3(Yproj.fv(), v3);
+			float m1 = property[id1];
+			float m2 = property[id2];
+			float m3 = property[id3];
+
+			cuVector V1V2(v1, v2), V2V3(v2, v3), V3V1(v3, v1);
+			float v1v2_norm = V1V2.norm();
+			float v2v3_norm = V2V3.norm();
+			float v3v1_norm = V3V1.norm();
+			cuVector DA1DP = V2V3.cross(N).unit() * v2v3_norm * m1;
+			cuVector DA2DP = V3V1.cross(N).unit() * v3v1_norm * m2;
+			cuVector DA3DP = V1V2.cross(N).unit() * v1v2_norm * m3;
+			cuVector DMDP = (DA1DP + DA2DP + DA3DP);
+			//cuVector DMDP = (DA1DP + DA2DP + DA3DP);	// canceled out: area
+
+			const float *dmdp = DMDP.fv();
+
+			// grad_m
+			grad_m[0] += dpdx[0][0] * dmdp[0] + dpdx[0][1] * dmdp[1] + dpdx[0][2] * dmdp[2];
+			grad_m[1] += dpdx[1][0] * dmdp[0] + dpdx[1][1] * dmdp[1] + dpdx[1][2] * dmdp[2];
+			grad_m[2] += dpdx[2][0] * dmdp[0] + dpdx[2][1] * dmdp[1] + dpdx[2][2] * dmdp[2];
+
+			if (nNeighbor_local == 2) break;
+		}
+		grad_m[0] /= area; grad_m[1] /= area; grad_m[2] /= area;
 
 		//cout << "grad_m: " << grad_m[0] << " " << grad_m[1] << " " << grad_m[2] << endl;
 	
@@ -301,11 +326,13 @@ Gradient::Gradient(void)
 {
 }
 
-Gradient::Gradient(int nVertex, int nFace, int nSamples, int degree, const double *Y, const int *face)
+Gradient::Gradient(int nVertex, int nFace, int nSamples, int degree, const double *Y, const int *face, const int *neighbor, const int *nNeighbor)
 {
-	allocMemory(nVertex, nFace, nSamples, degree, Y);
+	allocMemory(nVertex, nFace, nSamples, degree, Y, neighbor, nNeighbor);
 	if (Y != NULL) cudaMemcpy(d_Y, Y, nVertex * (degree + 1) * (degree + 1) * sizeof(double), cudaMemcpyHostToDevice);
 	if (face != NULL) cudaMemcpy(d_face, face, nFace * 3 * sizeof(int), cudaMemcpyHostToDevice);
+	if (neighbor != NULL) cudaMemcpy(d_neighbor, neighbor, (nVertex + nFace - 2) * 2 * sizeof(int), cudaMemcpyHostToDevice);
+	if (nNeighbor != NULL) cudaMemcpy(d_nNeighbor, nNeighbor, nVertex * 2 * sizeof(int), cudaMemcpyHostToDevice);
 }
 
 Gradient::~Gradient(void)
@@ -323,6 +350,8 @@ void Gradient::freeMemory(void)
 	cudaFree(d_pole);
 	cudaFree(d_propertySamples);
 	cudaFree(d_Y);
+	cudaFree(d_neighbor);
+	cudaFree(d_nNeighbor);
 	cudaFree(d_coeff);
 	cudaFree(d_u1);
 	cudaFree(d_u2);
@@ -345,7 +374,7 @@ void Gradient::freeMemory(void)
 	delete [] stream;
 }
 
-void Gradient::allocMemory(int nVertex, int nFace, int nSamples, int degree, const double *Y, const int *face)
+void Gradient::allocMemory(int nVertex, int nFace, int nSamples, int degree, const double *Y, const int *face, const int *neighbor, const int *nNeighbor)
 {
 	int n = (degree + 1) * (degree + 1);
 	nStream = min(n / ((degree + 1) * (degree + 1) - degree * degree), 2);
@@ -364,6 +393,10 @@ void Gradient::allocMemory(int nVertex, int nFace, int nSamples, int degree, con
 	cudaMalloc(&d_propertySamples, nSamples * 3 * nStream * sizeof(float));
 	if (Y == NULL) cudaMalloc(&d_Y, nMaxVertex0 * n * nStream * sizeof(double));
 	else cudaMalloc(&d_Y, nMaxVertex0 * n * sizeof(double));
+	if (neighbor == NULL) cudaMalloc(&d_neighbor, (nMaxVertex0 + nFace - 2) * 2 * nStream * sizeof(double));
+	else cudaMalloc(&d_neighbor, (nMaxVertex0 + nFace - 2) * 2 * sizeof(double));
+	if (nNeighbor == NULL) cudaMalloc(&d_nNeighbor, nMaxVertex0 * 2 * nStream * sizeof(double));
+	else cudaMalloc(&d_nNeighbor, nMaxVertex0 * 2 * sizeof(double));
 	cudaMalloc(&d_coeff, n * 3 * nStream * sizeof(double));
 	cudaMalloc(&d_m_bar, nSamples * nStream * sizeof(double));
 	cudaMalloc(&d_fid, nSamples * nStream * sizeof(int));
@@ -386,7 +419,7 @@ void Gradient::allocMemory(int nVertex, int nFace, int nSamples, int degree, con
 	}
 }
 
-void Gradient::updateGradientProperties(const float *vertex, int nVertex, const int *face, int nFace, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *M, bool hessian, int sid, bool resampling)
+void Gradient::updateGradientProperties(const float *vertex, int nVertex, const int *face, int nFace, const int *neighbor, const int *nNeighbor, const float *feature, const float *propertySamples, int nSamples, const double *variance, const float *property, const float *pole, const double *Y, const double *coeff, int degree, int deg_beg, int deg_end, double normalization, const double *m_bar, const float *u1, const float *u2, const int *fid, double *gradient, double *M, bool hessian, int sid, bool resampling)
 {
 	int blocksize = 256; // or any size up to 512
 	int nblocks = (nSamples + blocksize - 1) / blocksize;
@@ -405,6 +438,8 @@ void Gradient::updateGradientProperties(const float *vertex, int nVertex, const 
 	float *dp_pole = &d_pole[2 * sid];
 	float *dp_propertySamples =  &d_propertySamples[nSamples * 3 * sid];
 	double *dp_Y = (resampling) ? d_Y: &d_Y[nMaxVertex0 * (degree + 1) * (degree + 1) * sid];
+	int *dp_neighbor = (resampling) ? d_neighbor: &d_neighbor[(nMaxVertex0 + nMaxFace - 2) * 2 * sid];
+	int *dp_nNeighbor = (resampling) ? d_nNeighbor: &d_nNeighbor[nMaxVertex0 * 2 * sid];
 	double *dp_coeff = &d_coeff[(degree + 1) * (degree + 1) * 3 * sid];
 	double *dp_m_bar = &d_m_bar[nSamples * sid];
 	int *dp_fid = &d_fid[nSamples * sid];
@@ -427,6 +462,8 @@ void Gradient::updateGradientProperties(const float *vertex, int nVertex, const 
 	cudaMemcpyAsync(dp_pole, pole, 2 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
 	cudaMemcpyAsync(dp_propertySamples, propertySamples, nSamples * 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
 	if (!resampling) cudaMemcpyAsync(dp_Y, Y, nVertex * (degree + 1) * (degree + 1) * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
+	if (!resampling) cudaMemcpyAsync(dp_neighbor, neighbor, (nVertex + nFace - 2) * 2 * sizeof(int), cudaMemcpyHostToDevice, stream[sid]);
+	if (!resampling) cudaMemcpyAsync(dp_nNeighbor, nNeighbor, nVertex * 2 * sizeof(int), cudaMemcpyHostToDevice, stream[sid]);
 	cudaMemcpyAsync(dp_coeff, coeff, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
 	cudaMemcpyAsync(dp_m_bar, m_bar, nSamples * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
 	cudaMemcpyAsync(dp_fid, fid, nSamples * sizeof(int), cudaMemcpyHostToDevice, stream[sid]);
@@ -434,7 +471,7 @@ void Gradient::updateGradientProperties(const float *vertex, int nVertex, const 
 	cudaMemcpyAsync(dp_u2, u2, 3 * sizeof(float), cudaMemcpyHostToDevice, stream[sid]);
 	cudaMemcpyAsync(dp_gradient, gradient, (degree + 1) * (degree + 1) * 3 * sizeof(double), cudaMemcpyHostToDevice, stream[sid]);
 
-	gradient_properties_kernel<<<nblocks,blocksize,0,stream[sid]>>>(dp_vertex1, nVertex, dp_face, nFace, dp_feature, dp_propertySamples, nSamples, dp_variance, dp_property, dp_pole, dp_Y, dp_coeff, degree, deg_beg, deg_end, normalization, dp_m_bar, dp_u1, dp_u2, dp_fid, dp_gradient_new, dp_gradient_raw, dp_gradient_diag, dp_dEdx);
+	gradient_properties_kernel<<<nblocks,blocksize,0,stream[sid]>>>(dp_vertex1, nVertex, dp_face, nFace, dp_neighbor, dp_nNeighbor, dp_feature, dp_propertySamples, nSamples, dp_variance, dp_property, dp_pole, dp_Y, dp_coeff, degree, deg_beg, deg_end, normalization, dp_m_bar, dp_u1, dp_u2, dp_fid, dp_gradient_new, dp_gradient_raw, dp_gradient_diag, dp_dEdx);
 	//dEdx_kernel<<<nblocks2,blocksize,0,stream[sid]>>>(nSamples, degree, deg_beg, deg_end, dp_gradient_new, dp_gradient_raw, dp_dEdx);
 	_ATB(dp_gradient_raw, nSamples, size * 3, dp_dEdx, 1, dp_gradient_work, handle[sid], stream[sid]);
 	for (int i = 0; i < 3; i++)

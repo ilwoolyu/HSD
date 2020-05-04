@@ -2,7 +2,7 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: Apr 2020
+*	Update: May 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -127,6 +127,8 @@ HSD::~HSD(void)
 		cudaFreeHost(m_spharm[subj].face);
 		cudaFreeHost(m_spharm[subj].Y);
 		cudaFreeHost(m_spharm[subj].property);
+		cudaFreeHost(m_spharm[subj].neighbor);
+		cudaFreeHost(m_spharm[subj].nNeighbor);
 #else
 		delete [] m_spharm[subj].tree_cache;
 		delete [] m_spharm[subj].property;
@@ -314,6 +316,8 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	
 	float *ico_vertex = NULL;
 	int *ico_face = NULL;
+	int *ico_neighbor = NULL;
+	int *ico_nNeighbor = NULL;
 	if (m_resampling)
 	{
 		int nVertex = m_ico_mesh->nVertex();
@@ -343,6 +347,19 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 			double vd[3] = {v0[0], v0[1], v0[2]};
 			SphericalHarmonics::basis(m_degree, vd, &m_ico_Y[i * (m_degree + 1) * (m_degree + 1)]);
 		}
+#ifdef _USE_CUDA_BLAS
+		int nNeighbor = (nVertex + nFace - 2) * 2;	// use Euler number
+		ico_neighbor = new int[nNeighbor * sizeof(int)];
+		ico_nNeighbor = new int[nVertex * 2 * sizeof(int)];
+		int c = 0;
+		for (int i = 0; i < nVertex; i++)
+		{
+			ico_nNeighbor[i * 2] = c;
+			ico_nNeighbor[i * 2 + 1] = m_ico_mesh->vertex(i)->nNeighbor();
+			memcpy(&ico_neighbor[ico_nNeighbor[i * 2]], m_ico_mesh->vertex(i)->list(), sizeof(int) * ico_nNeighbor[i * 2 + 1]);
+			c += ico_nNeighbor[i * 2 + 1];
+		}
+#endif
 	}
 
 	cout << "Initialzation of subject information\n";
@@ -455,8 +472,34 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 				exit(1);
 			}
 			for (int i = 0; i < nFace; i++) memcpy(&m_spharm[subj].face[i * 3], m_spharm[subj].sphere->face(i)->list(), sizeof(int) * 3);
+			int nNeighbor = (nFace + nVertex - 2) * 2;	// use Euler number
+			status = cudaMallocHost((void**)&m_spharm[subj].neighbor, nNeighbor * sizeof(int));
+			if (status != cudaSuccess)
+			{
+				cout << "Fatal error: allocating pinned host memory" << endl;
+				exit(1);
+			}
+			status = cudaMallocHost((void**)&m_spharm[subj].nNeighbor, nVertex * 2 * sizeof(int));
+			if (status != cudaSuccess)
+			{
+				cout << "Fatal error: allocating pinned host memory" << endl;
+				exit(1);
+			}
+			int c = 0;
+			for (int i = 0; i < nVertex; i++)
+			{
+				m_spharm[subj].nNeighbor[i * 2] = c;
+				m_spharm[subj].nNeighbor[i * 2 + 1] = m_spharm[subj].sphere->vertex(i)->nNeighbor();
+				memcpy(&m_spharm[subj].neighbor[m_spharm[subj].nNeighbor[i * 2]], m_spharm[subj].sphere->vertex(i)->list(), sizeof(int) * m_spharm[subj].nNeighbor[i * 2 + 1]);
+				c += m_spharm[subj].nNeighbor[i * 2 + 1];
+			}
 		}
-		else m_spharm[subj].face = NULL;
+		else
+		{
+			m_spharm[subj].face = NULL;
+			m_spharm[subj].neighbor = NULL;
+			m_spharm[subj].nNeighbor = NULL;
+		}
 #endif
 
 		// optimal pole and tangent plane
@@ -585,7 +628,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	m_cuda_grad = new Gradient*[m_nCThreads];
 	for (int i = 0; i < m_nCThreads; i++)
 	{
-		m_cuda_grad[i] = new Gradient(nVertex, nFace, m_nQuerySamples, m_degree, m_ico_Y, ico_face);
+		m_cuda_grad[i] = new Gradient(nVertex, nFace, m_nQuerySamples, m_degree, m_ico_Y, ico_face, ico_neighbor, ico_nNeighbor);
 	}
 #else
 	m_nCThreads = 1;
@@ -598,6 +641,10 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	{
 		delete [] ico_vertex;
 		delete [] ico_face;
+#ifdef _USE_CUDA_BLAS
+		delete [] ico_neighbor;
+		delete [] ico_nNeighbor;
+#endif
 	}
 
 	cout << "Feature vector creation\n";
@@ -1088,7 +1135,7 @@ void HSD::initPairwise(const char *tmpVariance)
 				Vector N = Vector(a->fv(), b->fv()).cross(Vector(b->fv(), c->fv())).unit();
 				Vector V_proj = Vector(&m_propertySamples[i * 3]) * ((Vector(a->fv()) * N) / (Vector(&m_propertySamples[i * 3]) * N));
 
-				Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff);
+				Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff, 1e-5);
 
 				m_variance[m_nSamples * k + i] = propertyInterpolation(&var[nVertex * k], fid, coeff, m_spharm[tmp].sphere);
 			}
@@ -1239,7 +1286,7 @@ void HSD::updateProperties(int subj_id)
 				Vector V_proj = Vector(&m_propertySamples[i * 3]) * ((Vector(a->fv()) * N) / (Vector(&m_propertySamples[i * 3]) * N));
 
 				// bary centric
-				Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff);
+				Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff, 1e-5);
 
 				fid = (coeff[0] >= err && coeff[1] >= err && coeff[2] >= err) ? m_spharm[subj].tree_cache[i]: -1;
 			}
@@ -2089,7 +2136,7 @@ void HSD::updateGradientProperties_cuda(int deg_beg, int deg_end, int subj_id, i
 	const float *vertex = m_spharm[subj].vertex1;
 	const int *face = m_spharm[subj].face;
 
-	m_cuda_grad[sid]->updateGradientProperties(vertex, nVertex, face, nFace, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res, ssid, m_resampling);
+	m_cuda_grad[sid]->updateGradientProperties(vertex, nVertex, face, nFace, m_spharm[subj].neighbor, m_spharm[subj].nNeighbor, feature, propertySamples, m_nSamples, variance, property, m_spharm[subj].pole, m_spharm[subj].Y, m_spharm[subj].coeff, m_degree, deg_beg, deg_end, normalization, mean, m_spharm[subj].tan1, m_spharm[subj].tan2, m_spharm[subj].tree_cache, m_spharm[subj].gradient, &m_Hessian[csize * 3 * csize * 3 * subj], m_icosahedron >= m_fine_res, ssid, m_resampling);
 }
 #endif
 
@@ -2129,10 +2176,9 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 				const float *v2 = m_spharm[subj].sphere->face(fid)->vertex(1)->fv();
 				const float *v3 = m_spharm[subj].sphere->face(fid)->vertex(2)->fv();
 				Vector N = Vector(v1, v2).cross(Vector(v2, v3));
-				float area = N.norm();
 				N.unit();
 				Vector Yproj = Vector(y) * ((Vector(v1) * N) / (Vector(y) * N));
-				Coordinate::cart2bary((float *)v1, (float *)v2, (float *)v3, (float *)Yproj.fv(), cY);
+				Coordinate::cart2bary((float *)v1, (float *)v2, (float *)v3, (float *)Yproj.fv(), cY, 1e-5);
 				int id1 = m_spharm[subj].sphere->face(fid)->vertex(0)->id();
 				int id2 = m_spharm[subj].sphere->face(fid)->vertex(1)->id();
 				int id3 = m_spharm[subj].sphere->face(fid)->vertex(2)->id();
@@ -2170,30 +2216,57 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 				float z_dot[3];
 				Coordinate::rotPoint(z_hat, rot, z_dot);
 
-				// dp/dx
-				const float *nf = N.fv();
+				double grad_m[3] = {0, 0, 0};
+				int nid[2] = {id2, id3};
+				const int *neighbor = nid;
+				int nNeighbor = 2;
 				double r1 = (Vector(v1) * N) / (Vector(y) * N);
-				double r2 = r1 / (Vector(y) * N);
-				double dpdx[3][3] = {{r1 - r2 * y[0] * nf[0], -r2 * y[0] * nf[1], -r2 * y[0] * nf[2]},
-									{-r2 * y[1] * nf[0], r1 - r2 * y[1] * nf[1], -r2 * y[1] * nf[2]},
-									{-r2 * y[2] * nf[0], -r2 * y[2] * nf[1], r1 - r2 * y[2] * nf[2]}};
-				// dm/dp
-				Vector YP1(Yproj.fv(), v1), YP2(Yproj.fv(), v2), YP3(Yproj.fv(), v3);
-				const float m1 = m_spharm[subj].property[m_spharm[subj].sphere->nVertex() * k + id1];
-				const float m2 = m_spharm[subj].property[m_spharm[subj].sphere->nVertex() * k + id2];
-				const float m3 = m_spharm[subj].property[m_spharm[subj].sphere->nVertex() * k + id3];
-				Vector DA1DP = Vector(v2, v3).cross(N).unit() * Vector(v2, v3).norm() * m1;
-				Vector DA2DP = Vector(v3, v1).cross(N).unit() * Vector(v3, v1).norm() * m2;
-				Vector DA3DP = Vector(v1, v2).cross(N).unit() * Vector(v1, v2).norm() * m3;
-				Vector DMDP = (DA1DP + DA2DP + DA3DP) / area;
-				//Vector DMDP = (DA1DP + DA2DP + DA3DP);	// canceled out: area
-				
-				const float *dmdp = DMDP.fv();
-				
-				// grad_m
-				double grad_m[3] = {dpdx[0][0] * dmdp[0] + dpdx[0][1] * dmdp[1] + dpdx[0][2] * dmdp[2],
-									dpdx[1][0] * dmdp[0] + dpdx[1][1] * dmdp[1] + dpdx[1][2] * dmdp[2],
-									dpdx[2][0] * dmdp[0] + dpdx[2][1] * dmdp[1] + dpdx[2][2] * dmdp[2]};
+				if (cY[0] == 1 || cY[1] == 1 || cY[2] == 1)
+				{
+					if (cY[0] == 1) id1 = m_spharm[subj].sphere->face(fid)->vertex(0)->id();
+					else if (cY[1] == 1) id1 = m_spharm[subj].sphere->face(fid)->vertex(1)->id();
+					else if (cY[2] == 1) id1 = m_spharm[subj].sphere->face(fid)->vertex(2)->id();
+					neighbor = m_spharm[subj].sphere->vertex(id1)->list();
+					nNeighbor = m_spharm[subj].sphere->vertex(id1)->nNeighbor();
+					r1 = 1;
+				}
+
+				v1 = m_spharm[subj].sphere->vertex(id1)->fv();
+				float area = 0;
+				for (int j = 0; j < nNeighbor; j++)
+				{
+					id2 = neighbor[j];
+					id3 = neighbor[(j + 1) % nNeighbor];
+					v2 = m_spharm[subj].sphere->vertex(id2)->fv();
+					v3 = m_spharm[subj].sphere->vertex(id3)->fv();
+
+					// dp/dx
+					Vector N = Vector(v1, v2).cross(Vector(v2, v3));
+					area += N.norm();
+					const float *nf = N.unit().fv();
+					double r2 = r1 / (Vector(y) * N);
+					double dpdx[3][3] = {{r1 - r2 * y[0] * nf[0], -r2 * y[0] * nf[1], -r2 * y[0] * nf[2]},
+										{-r2 * y[1] * nf[0], r1 - r2 * y[1] * nf[1], -r2 * y[1] * nf[2]},
+										{-r2 * y[2] * nf[0], -r2 * y[2] * nf[1], r1 - r2 * y[2] * nf[2]}};
+					// dm/dp
+					const float m1 = m_spharm[subj].property[m_spharm[subj].sphere->nVertex() * k + id1];
+					const float m2 = m_spharm[subj].property[m_spharm[subj].sphere->nVertex() * k + id2];
+					const float m3 = m_spharm[subj].property[m_spharm[subj].sphere->nVertex() * k + id3];
+					Vector DA1DP = Vector(v2, v3).cross(N).unit() * Vector(v2, v3).norm() * m1;
+					Vector DA2DP = Vector(v3, v1).cross(N).unit() * Vector(v3, v1).norm() * m2;
+					Vector DA3DP = Vector(v1, v2).cross(N).unit() * Vector(v1, v2).norm() * m3;
+					Vector DMDP = (DA1DP + DA2DP + DA3DP);
+
+					const float *dmdp = DMDP.fv();
+
+					// grad_m
+					grad_m[0] += dpdx[0][0] * dmdp[0] + dpdx[0][1] * dmdp[1] + dpdx[0][2] * dmdp[2];
+					grad_m[1] += dpdx[1][0] * dmdp[0] + dpdx[1][1] * dmdp[1] + dpdx[1][2] * dmdp[2];
+					grad_m[2] += dpdx[2][0] * dmdp[0] + dpdx[2][1] * dmdp[1] + dpdx[2][2] * dmdp[2];
+
+					if (nNeighbor == 2) break;
+				}
+				grad_m[0] /= area; grad_m[1] /= area; grad_m[2] /= area;
 
 				//cout << "grad_m: " << grad_m[0] << " " << grad_m[1] << " " << grad_m[2] << endl;
 				

@@ -131,6 +131,8 @@ private:
 		float *vertex0;
 		float *vertex1;
 		int *face;
+		int *neighbor;
+		int *nNeighbor;
 #endif
 	};
 
