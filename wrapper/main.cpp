@@ -63,7 +63,7 @@ int main(int argc, char **argv)
     if (!dirProperty.empty() && listProperty.empty()) getListFile(dirProperty, listProperty, "txt");
     if (!dirSurf.empty() && listSurf.empty()) getListFile(dirSurf, listSurf, "vtk");
     if (!dirLandmark.empty() && listLandmark.empty()) getListFile(dirLandmark, listLandmark, "txt");
-    if (!dirCoeff.empty() && listCoeff.empty()) getListFile(dirCoeff, listCoeff, "coeff");
+    if (!dirCoeff.empty() && listCoeff.empty()) getListFile(dirCoeff, listCoeff, "txt");
     
     // subject names
     int nSubj = listSphere.size();

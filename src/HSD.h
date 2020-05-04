@@ -2,7 +2,7 @@
 *	HSD.h
 *
 *	Release: Sep 2016
-*	Update: Apr 2020
+*	Update: May 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science

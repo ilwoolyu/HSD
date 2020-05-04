@@ -34,7 +34,6 @@ int nCThreads = 0;
 
 void PARSE_ARGS(int argc, char **argv)
 {
-    
     std::string desc("Hierarchical Spherical Deformation for Cortical Surface Registration "
 					 HSD_VERSION "\n"
 					 "Author: Ilwoo Lyu\n"
@@ -45,37 +44,38 @@ void PARSE_ARGS(int argc, char **argv)
 
     CLI::App app(desc);
 
-	app.add_option("--propertyDir", dirProperty, "provides a directory of property files")->check(CLI::ExistingDirectory);
-	app.add_option("--sphereDir", dirSphere, "provides a directory of sphere files")->check(CLI::ExistingDirectory);
-	app.add_option("--outputDir", dirOutput, "provides a directory of output files")->check(CLI::ExistingDirectory);
-	app.add_option("--landmarkDir", dirLandmark, "provides a directory of landmark files")->check(CLI::ExistingDirectory);
-	app.add_option("--coefficientDir", dirCoeff, "provides a directory of previous spherical harmonics coefficient files")->check(CLI::ExistingDirectory);
-	app.add_option("--surfaceDir", dirSurf, "provides a directory of surface model files for location information")->check(CLI::ExistingDirectory);
-	app.add_option("-p,--property", listProperty, "provides a list of property files")->check(CLI::ExistingFile);
-	app.add_option("-s,--sphere", listSphere, "provides a list of sphere files")->required()->check(CLI::ExistingFile);
-	app.add_option("--outputcoeff", listOutputCoeff, "provides a list of output coeff files");
-	app.add_option("-o,--output", listOutput, "provides a list of output sphere files");
-	app.add_option("-l,--landmark", listLandmark, "provides a list of landmark files")->check(CLI::ExistingFile);
-	app.add_option("-c,--coefficient", listCoeff, "provides a list of previous spherical harmonics coefficient files")->check(CLI::ExistingFile);
-	app.add_option("--surface", listSurf, "provides a list of surface model files for location information")->check(CLI::ExistingFile);
-	app.add_option("--weightMap", weightMap, "provides an overall property weight (eta)", true)->check(CLI::NonNegativeNumber);
-	app.add_option("-w,--weight", listWeight, "provides weights for each property")->check(CLI::NonNegativeNumber);
-	app.add_option("--idprior", idprior, "provides inverse of distortion prior for the regularization", true)->check(CLI::NonNegativeNumber);
-	app.add_option("-d,--degree", degree, "provides a degree of spherical harmonics decomposition", true)->check(CLI::NonNegativeNumber);
-	app.add_option("--maxIter", maxIter, "provides the maxmum number of iterations", true)->check(CLI::NonNegativeNumber);
-	app.add_option("--icosahedron", icosa, "provides a icosahedron subdivision level for uniform sampling points", true)->check(CLI::Range(0,7));
-	app.add_option("--locationWeight", weightLoc, "provides a weighting factor of location information", true);
-	app.add_option("--filter", listFilter, "provides a list of suffix filters to select desired property files");
-	app.add_option("--tmpVar", tmpVariance, "provides a prior of feature variance (only works on pairwise registration)")->check(CLI::ExistingFile);
-	app.add_option("--icomesh", icoMesh, "provides a pre-defined icosahedron mesh")->check(CLI::ExistingFile);
-	app.add_flag("--writecoeff", realtimeCoeff, "enables real-time coefficient writing whenever the cost function is minimized, which may lead to significant IO overhead");
-	app.add_flag("--noguess", noguess, "disables an initial guess for rigid alignment");
-	app.add_flag("--resample", resampling, "enables resampling of geometric properties using the current icosahedron level");
-	app.add_option("--nThreads", nThreads, "sets the number of OpenMP cores (0: OMP_NUM_THREADS or 1)", true)->check(CLI::NonNegativeNumber);
+	/*
+	app.add_option("--sphereDir", dirSphere, "Specify a directory of sphere files")->check(CLI::ExistingDirectory)->group("Directory inputs");
+	app.add_option("--propertyDir", dirProperty, "Specify a directory of property files")->check(CLI::ExistingDirectory)->group("Directory inputs");
+	app.add_option("--outputDir", dirOutput, "Specify a directory of output files")->check(CLI::ExistingDirectory)->group("Directory inputs");
+	//app.add_option("--landmarkDir", dirLandmark, "Specify a directory of landmark files")->check(CLI::ExistingDirectory);
+	app.add_option("--coefficientDir", dirCoeff, "Specify a directory of previous spherical harmonics coefficient files")->check(CLI::ExistingDirectory)->group("Directory inputs");
+	app.add_option("--filter", listFilter, "Specify a list of suffix filters to select desired property files")->group("Directory inputs");
+	//app.add_option("--surfaceDir", dirSurf, "Specify a directory of surface model files for location information")->check(CLI::ExistingDirectory);*/
+	app.add_option("-s,--sphere", listSphere, "Specify a list of sphere files")->required()->check(CLI::ExistingFile)->group("File inputs");
+	app.add_option("-p,--property", listProperty, "Specify a list of property files")->required()->check(CLI::ExistingFile)->group("File inputs");
+	app.add_option("-o,--output", listOutput, "Specify a list of output sphere files")->group("File inputs");
+	app.add_option("--outputcoeff", listOutputCoeff, "Specify a list of output coeff files")->group("File inputs");
+	//app.add_option("-l,--landmark", listLandmark, "Specify a list of landmark files")->check(CLI::ExistingFile);
+	app.add_option("-c,--coefficient", listCoeff, "Specify a list of previous spherical harmonics coefficient files")->check(CLI::ExistingFile)->group("File inputs");
+	//app.add_option("--surface", listSurf, "Specify a list of surface model files for location information")->check(CLI::ExistingFile);
+	//app.add_option("--weightMap", weightMap, "Specify an overall property weight (eta)", true)->check(CLI::NonNegativeNumber);
+	app.add_option("-d,--degree", degree, "Specify a degree of spherical harmonics decomposition", true)->check(CLI::NonNegativeNumber)->group("Optimization");
+	app.add_option("--icosahedron", icosa, "Select a icosahedral subdivision level for uniform sampling points", true)->check(CLI::Range(0,7))->group("Optimization");
+	app.add_option("--weight", listWeight, "Specify weights for each property")->check(CLI::NonNegativeNumber)->group("Optimization");
+	app.add_option("--idprior", idprior, "Specify inverse of distortion prior for the regularization", true)->check(CLI::NonNegativeNumber)->group("Optimization");
+	app.add_option("--maxIter", maxIter, "Specify the maxmum number of iterations at the final phase", true)->check(CLI::NonNegativeNumber)->group("Optimization");
+	//app.add_option("--locationWeight", weightLoc, "Specify a weighting factor of location information", true);
+	app.add_option("--icomesh", icoMesh, "Specify a pre-defined icosahedral mesh, which overrides --icosaherdon")->check(CLI::ExistingFile)->group("Optimization");
+	app.add_flag("--noguess", noguess, "Do not execute an initial guess for rigid alignment")->group("Optimization");
+	app.add_flag("--resample", resampling, "Resample geometric properties using the current icosahedral level")->group("Optimization");
+	app.add_flag("--writecoeff", realtimeCoeff, "Write coefficient whenever the energy is minimized, which may lead to significant IO overhead")->group("Optimization");
+	app.add_option("--fixedSubjects", listFixedSubj, "Select indices (starting from 0) of the subjects not being deformed during the optimization (typically for template models)")->check(CLI::NonNegativeNumber)->group("Pair-wise registration");
+	app.add_option("--tmpVar", tmpVariance, "Specify a prior of feature variance (only works on pairwise registration)")->check(CLI::ExistingFile)->group("Pair-wise registration");
+	app.add_option("--nThreads", nThreads, "Specify the number of OpenMP cores (0: OMP_NUM_THREADS or 1)", true)->check(CLI::NonNegativeNumber)->group("Multi-threading");
 #ifdef _USE_CUDA_BLAS
-	app.add_option("--nStreams", nCThreads, "sets the number of CUDA streams (0: use full GPU capacity)", true)->check(CLI::NonNegativeNumber);
+	app.add_option("--nStreams", nCThreads, "Specify the number of CUDA streams (0: use full GPU capacity)", true)->check(CLI::NonNegativeNumber)->group("Multi-threading");
 #endif
-	app.add_option("--fixedSubjects", listFixedSubj, "specifies indices (starting from 0) of the subjects not being deformed during the optimization (typically for template models)")->check(CLI::NonNegativeNumber);
 	try
 	{
 		app.parse(argc, argv);

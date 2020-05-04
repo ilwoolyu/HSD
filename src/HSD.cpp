@@ -1772,10 +1772,10 @@ void HSD::minGradientDescent(int deg_beg, int deg_end, int subj_id)
 		{
 			//updateGradient(deg_beg, deg_end, 0.001 * t / (nIter + 1), subj_id);
 			updateGradient(deg_beg, deg_end, 0.001 * t / (nSuccessIter + 1), subj_id);
-			norm = 0;
+			/*norm = 0;
 			for (int i = 0; i < m_csize * 3; i++)
 				norm += m_gradient[i] * m_gradient[i];
-			norm = sqrt(norm);
+			norm = sqrt(norm);*/
 		}
 		#pragma omp parallel for
 		for (int i = 0; i < m_nSubj; i++)
@@ -1816,9 +1816,9 @@ void HSD::minGradientDescent(int deg_beg, int deg_end, int subj_id)
 			//currentCost = cost(subj_id);
 			double diff = (m_mincost - currentCost);
 			if (m_icosahedron < m_fine_res)
-				cout << "[" << nIter << "] " << currentCost << ": " << m_cost_prop << " " << m_cost_area << " " << norm * t;
+				cout << "[" << nIter << "] " << currentCost << ": " << m_cost_prop << " " << m_cost_area;
 			else
-				cout << "[" << nIter << "] " << currentCost << ": " << m_cost_prop << " " << m_cost_disp << " " << norm * t;
+				cout << "[" << nIter << "] " << currentCost << ": " << m_cost_prop << " " << m_cost_disp;
 			for (int i = 0; i < m_nSubj; i++)
 				if (m_spharm[i].isFlip) cout << " " << i;
 			cout << endl;

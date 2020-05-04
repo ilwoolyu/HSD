@@ -6,7 +6,7 @@ thread=1
 out_suffix='HSD'
 out_root=''
 deg=15
-ldprior=625
+idprior=625
 docker=''
 flist1=''
 flist2=''
@@ -24,7 +24,7 @@ function usage()
     echo
     echo -e "  --thread <number>    \tthe number of the omp threads (default: $thread)"
     echo -e "  --deg <number>       \tspherical harmonics degree (default: $deg)"
-    echo -e "  --ldprior <number>   \tdistortion prior for regularization (default: $ldprior)"
+    echo -e "  --idprior <number>   \tdistortion prior for regularization (default: $idprior)"
     echo -e "  --subfolder <string> \tsub-folder name being created in output root path (default: $out_suffix)"
     echo -e "  --out <string>       \toutput root path (default: FreeSurfer_subject_root_path)"
     echo -e "  --docker <tag>       \tdocker image tag (e.g. 1.5)"
@@ -103,10 +103,7 @@ function reformat_surf()
 			fi
 			isphere=${farray2[$j]}/${hemi}.sphere.reg.vtk
 			osphere=${farray2[$j]}/${hemi}.sphere.reg
-			if [ ! -e $osphere ]
-			then
-				(mris_convert $isphere $osphere && mris_rescale $osphere $osphere) &
-			fi
+			(mris_convert $isphere $osphere && mris_rescale $osphere $osphere) &
 		done
 		wait
 	done
@@ -156,8 +153,8 @@ while [[ $# -gt 0 ]]; do
             thread="$2"
             shift; shift
             ;;
-        --ldprior)
-            ldprior="$2"
+        --idprior)
+            idprior="$2"
             shift; shift
             ;;
         --subfolder)
@@ -307,23 +304,23 @@ done
 if [ -z $docker ]
 then
 	# Resolution 1
-	HSD -d $deg -s $s -p $g1 --idprior $ldprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4 $resample
+	HSD -d $deg -s $s -p $g1 --idprior $idprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4 $resample
 	# Resolution 2
-	HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5 $resample
+	HSD -c $c -d $deg -s $s -p $g2 --idprior $idprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5 $resample
 	# Resolution 3
-	HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6 $resample
+	HSD -c $c -d $deg -s $s -p $g2 --idprior $idprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6 $resample
 	# Resolution 4
-	HSD -c $c -d $deg -s $s -p $g3 --idprior $ldprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7 $resample
+	HSD -c $c -d $deg -s $s -p $g3 --idprior $idprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7 $resample
 else
 	if [ -z $HSD_SPHERE_ROOT ]; then HSD_SPHERE_ROOT=''; fi
 	# Resolution 1
-	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -d $deg -s $s -p $g1 --idprior $ldprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4 $resample
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -d $deg -s $s -p $g1 --idprior $idprior --icosahedron 4 --outputcoeff $c --nThreads $thread $ico4 $resample
 	# Resolution 2
-	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5 $resample
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $idprior --icosahedron 5 --outputcoeff $c --noguess --nThreads $thread $ico5 $resample
 	# Resolution 3
-	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $ldprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6 $resample
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g2 --idprior $idprior --icosahedron 6 --outputcoeff $c --noguess --nThreads $thread $ico6 $resample
 	# Resolution 4
-	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g3 --idprior $ldprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7 $resample
+	docker run -v $HSD_SPHERE_ROOT:$HSD_SPHERE_ROOT -v $out:$out --rm ilwoolyu/cmorph:$docker HSD -c $c -d $deg -s $s -p $g3 --idprior $idprior --icosahedron 7 --outputcoeff $c -o $r --noguess --nThreads $thread $ico7 $resample
 fi
 
 # Conversion
