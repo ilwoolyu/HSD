@@ -119,16 +119,21 @@ HSD::~HSD(void)
 		delete [] m_spharm[subj].flip;
 		delete [] m_spharm[subj].area0;
 		delete [] m_spharm[subj].area1;
-		if (m_resampling) delete m_spharm[subj].sphere0;
+		if (m_resampling && ((m_pairwise && !m_spharm[subj].fixed) || !m_pairwise))
+			delete m_spharm[subj].sphere0;
 #ifdef _USE_CUDA_BLAS
 		cudaFreeHost(m_spharm[subj].tree_cache);
 		cudaFreeHost(m_spharm[subj].vertex0);
 		cudaFreeHost(m_spharm[subj].vertex1);
-		cudaFreeHost(m_spharm[subj].face);
-		cudaFreeHost(m_spharm[subj].Y);
 		cudaFreeHost(m_spharm[subj].property);
-		cudaFreeHost(m_spharm[subj].neighbor);
-		cudaFreeHost(m_spharm[subj].nNeighbor);
+		if (!m_resampling)
+		{
+			cudaFreeHost(m_spharm[subj].face);
+			cudaFreeHost(m_spharm[subj].neighbor);
+			cudaFreeHost(m_spharm[subj].nNeighbor);
+		}
+		if ((m_resampling && m_pairwise && m_spharm[subj].fixed) || !m_resampling)
+			cudaFreeHost(m_spharm[subj].Y);
 #else
 		delete [] m_spharm[subj].tree_cache;
 		delete [] m_spharm[subj].property;
@@ -624,6 +629,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		m_nCThreads = (total / (total - free));
 		delete gsize;
 	}
+	m_nCThreads = (m_nCThreads < m_nDeformableSubj) ? m_nCThreads: m_nDeformableSubj;
 	cout << "# of CUDA streams: " << m_nCThreads << endl;
 	m_cuda_grad = new Gradient*[m_nCThreads];
 	for (int i = 0; i < m_nCThreads; i++)
