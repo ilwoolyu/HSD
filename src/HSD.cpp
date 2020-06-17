@@ -826,7 +826,7 @@ string HSD::initProperties(int subj, const char **property, int nLines, AABB_Sph
 	string log;
 	int nVertex = m_spharm[subj].sphere->nVertex();	// this is the same as the number of properties
 	int nFace = m_spharm[subj].sphere->nFace();
-	bool resampling = (nLines != nVertex);
+	bool resampling = m_resampling;
 	float *property_raw;
 
 	if (m_nProperties + m_nSurfaceProperties > 0)
@@ -2546,7 +2546,7 @@ void HSD::guessInitCoeff(void)
 		Coordinate::sph2cart(m_spharm[subj].pole[0], m_spharm[subj].pole[1], axis0);
 		Vector P = axis0;
 
-		for (double c1 = 0; c1 <= PI / 16; c1 += PI / 16)
+		for (double c1 = 0; c1 <= PI / 4; c1 += PI / 16)
 		{
 			for (double c2 = 0; c2 < 2 * PI; c2 += PI / 8)
 			{
@@ -2567,7 +2567,7 @@ void HSD::guessInitCoeff(void)
 					float angle = (float)c1;
 					Vector A = P.cross(Q); A.unit();
 
-					float rv[3];
+					/*float rv[3];
 					float rot[9];
 
 					for (int i = 0; i < m_spharm[subj].vertex.size(); i++)
@@ -2587,7 +2587,46 @@ void HSD::guessInitCoeff(void)
 					}
 					m_updated[subj] = false;
 
-					double cost = trace(subj);
+					double cost = trace(subj);*/
+
+					double cost = 0;
+					if (nLandmark > m_spharm[subj].landmark.size())
+					{
+						updateLandmark(subj);
+						cost += varLandmarks(subj);
+					}
+					if (m_nQuerySamples > 0)
+					{
+						float rot[9], rot1[9], rot2[9];
+						float v1[3];
+						Coordinate::rotation(A.fv(), -angle, rot1);
+						Coordinate::rotation(Q.fv(), (float)-delta[0], rot2);
+						rot[0] = rot1[0] * rot2[0] + rot1[1] * rot2[3] + rot1[2] * rot2[6];
+						rot[1] = rot1[0] * rot2[1] + rot1[1] * rot2[4] + rot1[2] * rot2[7];
+						rot[2] = rot1[0] * rot2[2] + rot1[1] * rot2[5] + rot1[2] * rot2[8];
+						rot[3] = rot1[3] * rot2[0] + rot1[4] * rot2[3] + rot1[5] * rot2[6];
+						rot[4] = rot1[3] * rot2[1] + rot1[4] * rot2[4] + rot1[5] * rot2[7];
+						rot[5] = rot1[3] * rot2[2] + rot1[4] * rot2[5] + rot1[5] * rot2[8];
+						rot[6] = rot1[6] * rot2[0] + rot1[7] * rot2[3] + rot1[8] * rot2[6];
+						rot[7] = rot1[6] * rot2[1] + rot1[7] * rot2[4] + rot1[8] * rot2[7];
+						rot[8] = rot1[6] * rot2[2] + rot1[7] * rot2[5] + rot1[8] * rot2[8];
+						for (int i = 0; i < m_nQuerySamples; i++)
+						{
+							for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+							{
+								const float *v0 = &m_propertySamples[i * 3];
+								Coordinate::rotPoint(v0, rot, v1);
+
+								float bary[3];
+								int fid = m_spharm[subj].tree->closestFace(v1, bary);
+								int nVertex = m_spharm[subj].sphere->nVertex();
+								double p = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, bary, m_spharm[subj].sphere);
+								double m = m_mean[m_nSamples * k + i];
+								double pm = (p - m);
+								cost += pm * pm / ((m_nProperties + m_nSurfaceProperties) * m_nSamples);
+							}
+						}
+					}
 
 					if (cost < mincost)
 					{
