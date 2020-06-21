@@ -188,14 +188,14 @@ int main(int argc, char **argv)
     cout << "Fixed Subjects: " << nFixed << endl;			for (int i = 0; i < nSubj; i++) if (fixedSubj != NULL && fixedSubj[i]) cout << sphere[i] << endl;
 
 #ifdef _USE_OPENMP
-	// OPENMP setup
+    // OPENMP setup
     if (nThreads == 0)
-	{
+    {
         const char *env = getenv("OMP_NUM_THREADS");
         nThreads = (env != NULL) ? max(atoi(env), 1) : 1;
     }
-	omp_set_num_threads(nThreads);
-	openblas_set_num_threads(nThreads);
+    omp_set_num_threads(nThreads);
+    openblas_set_num_threads(nThreads);
 #endif
 
     HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess, icomesh, nCThreads, resampling);

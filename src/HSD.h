@@ -2,7 +2,7 @@
 *	HSD.h
 *
 *	Release: Sep 2016
-*	Update: May 2020
+*	Update: June 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -45,6 +45,7 @@ private:
 	string initProperties(int subj, const char **property, int nLines, AABB_Sphere *tree = NULL, Mesh *sphere = NULL, int nHeaderLines = 0);
 	string initLandmarks(int subj, const char **landmark);
 	void initTangentPlane(int subj);
+	void initLocalPatch(int subj);
 	string initArea(int subj);
 	void initPairwise(const char *tmpVariance);
 	void guessInitCoeff(void);
@@ -113,6 +114,7 @@ private:
 		Mesh *surf;
 		float *property;
 		int *tree_cache;
+		int *patch_cache;
 		float *meanProperty;
 		float *medianProperty;
 		float *maxProperty;
@@ -122,6 +124,7 @@ private:
 		float *area1;
 		vector<point *> landmark;
 		bool *flip;
+		bool *patch_checked;
 		bool fixed;
 		bool isFlip;
 		bool step_adjusted;
@@ -151,6 +154,7 @@ private:
 	int m_nMaxVertex;
 	int m_nThreads;
 	int m_nCThreads;
+	int m_patch_range;
 	
 	double *m_coeff;
 	double *m_coeff_prev_step;	// previous coefficients

@@ -2,7 +2,7 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: May 2020
+*	Update: June 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -41,6 +41,7 @@ HSD::HSD(void)
 	m_pairwise = false;
 	m_resampling = false;
 	m_multi_res = true;
+	m_patch_range = 2;
 }
 
 HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess, const char *ico_mesh, int nCThreads, bool resampling)
@@ -66,6 +67,7 @@ HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties,
 	m_pairwise = false;
 	m_resampling = resampling;
 	m_multi_res = true;
+	m_patch_range = 2;
 	init(sphere, property, weight, landmark, weightLoc, coeff, surf, icosahedron, fixedSubj, tmpVariance, ico_mesh, nCThreads);
 }
 
@@ -119,6 +121,7 @@ HSD::~HSD(void)
 		delete [] m_spharm[subj].flip;
 		delete [] m_spharm[subj].area0;
 		delete [] m_spharm[subj].area1;
+		delete [] m_spharm[subj].patch_checked;
 		if (m_resampling && ((m_pairwise && !m_spharm[subj].fixed) || !m_pairwise))
 			delete m_spharm[subj].sphere0;
 #ifdef _USE_CUDA_BLAS
@@ -139,10 +142,13 @@ HSD::~HSD(void)
 		delete [] m_spharm[subj].property;
 		if ((m_resampling && m_pairwise && m_spharm[subj].fixed) || !m_resampling)
 			delete [] m_spharm[subj].Y;
+		if (!m_resampling)
+			delete [] m_spharm[subj].patch_cache;
 #endif
 	}
 	delete [] m_spharm;
 	if (m_resampling) delete [] m_ico_Y;
+	if (m_resampling) delete [] m_spharm[0].patch_cache;
 }
 
 void HSD::run(void)
@@ -510,6 +516,9 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		// optimal pole and tangent plane
 		initTangentPlane(subj);
 
+		// patch information
+		if (!m_resampling) initLocalPatch(subj);
+
 		// triangle flipping
 		m_spharm[subj].flip = NULL;
 		log += "-Triangle flipping\n";
@@ -524,6 +533,18 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		log += "----------\n";
 		
 		cout << log;
+	}
+
+	if (m_resampling)
+	{
+		int nFace = m_ico_mesh->nFace();
+		initLocalPatch(0);
+		for (int subj = 1; subj < m_nSubj; subj++)
+		{
+			m_spharm[subj].patch_cache = m_spharm[0].patch_cache;
+			m_spharm[subj].patch_checked = new bool[nFace];
+			memset(m_spharm[subj].patch_checked, 0, nFace * sizeof(bool));
+		}
 	}
 
 	cout << "Computing weight terms" << endl;
@@ -819,6 +840,33 @@ void HSD::initTangentPlane(int subj)
 	m_spharm[subj].tan1[0] = tan1[0]; m_spharm[subj].tan1[1] = tan1[1]; m_spharm[subj].tan1[2] = tan1[2];
 	const float *tan2 = (Vector(fmean).cross(Vector(m_spharm[subj].tan1))).unit().fv();
 	m_spharm[subj].tan2[0] = tan2[0]; m_spharm[subj].tan2[1] = tan2[1]; m_spharm[subj].tan2[2] = tan2[2];
+}
+
+void HSD::initLocalPatch(int subj)
+{
+	int nFace = m_spharm[subj].sphere->nFace();
+	map<pair<int, int>, int> edgeList;
+	for (int i = 0 ; i < nFace; i++)
+	{
+		const int *vid = m_spharm[subj].sphere->face(i)->list();
+		edgeList.insert(make_pair(make_pair(vid[0], vid[1]), i));
+		edgeList.insert(make_pair(make_pair(vid[1], vid[2]), i));
+		edgeList.insert(make_pair(make_pair(vid[2], vid[0]), i));
+	}
+	m_spharm[subj].patch_cache = new int[nFace * 3];
+	map<pair<int, int>, int>::iterator it;
+	for (int i = 0 ; i < nFace; i++)
+	{
+		const int *vid = m_spharm[subj].sphere->face(i)->list();
+		it = edgeList.find(make_pair(vid[1], vid[0]));
+		m_spharm[subj].patch_cache[i * 3] = it->second;
+		it = edgeList.find(make_pair(vid[2], vid[1]));
+		m_spharm[subj].patch_cache[i * 3 + 1] = it->second;
+		it = edgeList.find(make_pair(vid[0], vid[2]));
+		m_spharm[subj].patch_cache[i * 3 + 2] = it->second;
+	}
+	m_spharm[subj].patch_checked = new bool[nFace];
+	memset(m_spharm[subj].patch_checked, 0, nFace * sizeof(bool));
 }
 
 string HSD::initProperties(int subj, const char **property, int nLines, AABB_Sphere *tree, Mesh *sphere, int nHeaderLines)
@@ -1283,18 +1331,41 @@ void HSD::updateProperties(int subj_id)
 			float coeff[3];
 			if (m_spharm[subj].tree_cache[i] != -1)	// if previous cache is available
 			{
-				Face *f = (Face *)m_spharm[subj].sphere->face(m_spharm[subj].tree_cache[i]);
-				Vertex *a = (Vertex *)f->vertex(0);
-				Vertex *b = (Vertex *)f->vertex(1);
-				Vertex *c = (Vertex *)f->vertex(2);
+				vector<int> flist;
+				flist.push_back(m_spharm[subj].tree_cache[i]);
+				int init = 0;
+				int len = 1;
+				for (int range = 0; range < m_patch_range; range++)
+				{
+					for (int id = init; id < len; id++)
+						for (int j = 0; j < 3; j++)
+							flist.push_back(m_spharm[subj].patch_cache[flist[id] * 3 + j]);
+					init = len;
+					len = flist.size();
+				}
+				for (int j = 0; j < flist.size() && fid == -1; j++)
+				{
+					if (m_spharm[subj].patch_checked[flist[j]]) continue;
+					m_spharm[subj].patch_checked[flist[j]] = true;
 
-				Vector N = Vector(a->fv(), b->fv()).cross(Vector(b->fv(), c->fv())).unit();
-				Vector V_proj = Vector(&m_propertySamples[i * 3]) * ((Vector(a->fv()) * N) / (Vector(&m_propertySamples[i * 3]) * N));
+					Face *f = (Face *)m_spharm[subj].sphere->face(flist[j]);
+					Vertex *a = (Vertex *)f->vertex(0);
+					Vertex *b = (Vertex *)f->vertex(1);
+					Vertex *c = (Vertex *)f->vertex(2);
 
-				// bary centric
-				Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff, 1e-5);
+					Vector N = Vector(a->fv(), b->fv()).cross(Vector(b->fv(), c->fv())).unit();
+					float scale = ((Vector(a->fv()) * N) / (Vector(&m_propertySamples[i * 3]) * N));
+					const float maxdist = 1 - cos(PI / 180 * 36);
+					if (fabs(scale - 1) > maxdist) continue;
+					Vector V_proj = Vector(&m_propertySamples[i * 3]) * scale;
 
-				fid = (coeff[0] >= err && coeff[1] >= err && coeff[2] >= err) ? m_spharm[subj].tree_cache[i]: -1;
+					// bary centric
+					Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff);
+
+					fid = (coeff[0] >= err && coeff[1] >= err && coeff[2] >= err) ? flist[j]: -1;
+				}
+				for (int j = 0; j < flist.size(); j++)
+					m_spharm[subj].patch_checked[flist[j]] = false;
 			}
 			if (fid == -1)	// if no closest face is found
 			{
@@ -2612,14 +2683,14 @@ void HSD::guessInitCoeff(void)
 						rot[8] = rot1[6] * rot2[2] + rot1[7] * rot2[5] + rot1[8] * rot2[8];
 						for (int i = 0; i < m_nQuerySamples; i++)
 						{
+							const float *v0 = &m_propertySamples[i * 3];
+							Coordinate::rotPoint(v0, rot, v1);
+
+							float bary[3];
+							int fid = m_spharm[subj].tree->closestFace(v1, bary);
+							int nVertex = m_spharm[subj].sphere->nVertex();
 							for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
 							{
-								const float *v0 = &m_propertySamples[i * 3];
-								Coordinate::rotPoint(v0, rot, v1);
-
-								float bary[3];
-								int fid = m_spharm[subj].tree->closestFace(v1, bary);
-								int nVertex = m_spharm[subj].sphere->nVertex();
 								double p = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, bary, m_spharm[subj].sphere);
 								double m = m_mean[m_nSamples * k + i];
 								double pm = (p - m);
@@ -2926,4 +2997,3 @@ double HSD::optimalMeanCost(double *coeff, int subj)
 
 	return cost;
 }
-

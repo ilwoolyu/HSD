@@ -42,7 +42,7 @@ void PARSE_ARGS(int argc, char **argv)
 					 "[2] Lyu et al., Hierarchical Spherical Deformation for Cortical Surface Registration, Medical Image Analysis, 57, 72-88, 2019.\n"
 					 );
 
-    CLI::App app(desc);
+	CLI::App app(desc);
 
 	/*
 	app.add_option("--sphereDir", dirSphere, "Specify a directory of sphere files")->check(CLI::ExistingDirectory)->group("Directory inputs");
