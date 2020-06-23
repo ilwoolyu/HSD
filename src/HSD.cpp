@@ -859,11 +859,11 @@ void HSD::initLocalPatch(int subj)
 	{
 		const int *vid = m_spharm[subj].sphere->face(i)->list();
 		it = edgeList.find(make_pair(vid[1], vid[0]));
-		m_spharm[subj].patch_cache[i * 3] = it->second;
+		m_spharm[subj].patch_cache[i * 3] = (it != edgeList.end()) ? it->second: -1;
 		it = edgeList.find(make_pair(vid[2], vid[1]));
-		m_spharm[subj].patch_cache[i * 3 + 1] = it->second;
+		m_spharm[subj].patch_cache[i * 3 + 1] = (it != edgeList.end()) ? it->second: -1;
 		it = edgeList.find(make_pair(vid[0], vid[2]));
-		m_spharm[subj].patch_cache[i * 3 + 2] = it->second;
+		m_spharm[subj].patch_cache[i * 3 + 2] = (it != edgeList.end()) ? it->second: -1;
 	}
 	m_spharm[subj].patch_checked = new bool[nFace];
 	memset(m_spharm[subj].patch_checked, 0, nFace * sizeof(bool));
@@ -1345,7 +1345,7 @@ void HSD::updateProperties(int subj_id)
 				}
 				for (int j = 0; j < flist.size() && fid == -1; j++)
 				{
-					if (m_spharm[subj].patch_checked[flist[j]]) continue;
+					if (flist[j] == -1 || m_spharm[subj].patch_checked[flist[j]]) continue;
 					m_spharm[subj].patch_checked[flist[j]] = true;
 
 					Face *f = (Face *)m_spharm[subj].sphere->face(flist[j]);
