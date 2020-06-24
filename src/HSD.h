@@ -155,6 +155,7 @@ private:
 	int m_nThreads;
 	int m_nCThreads;
 	int m_patch_range;
+	int m_pivot_cache;
 	
 	double *m_coeff;
 	double *m_coeff_prev_step;	// previous coefficients

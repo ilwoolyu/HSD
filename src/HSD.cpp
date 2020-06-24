@@ -136,19 +136,23 @@ HSD::~HSD(void)
 			cudaFreeHost(m_spharm[subj].nNeighbor);
 		}
 		if ((m_resampling && m_pairwise && m_spharm[subj].fixed) || !m_resampling)
+		{
 			cudaFreeHost(m_spharm[subj].Y);
+			delete [] m_spharm[subj].patch_cache;
+		}
 #else
 		delete [] m_spharm[subj].tree_cache;
 		delete [] m_spharm[subj].property;
 		if ((m_resampling && m_pairwise && m_spharm[subj].fixed) || !m_resampling)
+		{
 			delete [] m_spharm[subj].Y;
-		if (!m_resampling)
 			delete [] m_spharm[subj].patch_cache;
+		}
 #endif
 	}
 	delete [] m_spharm;
 	if (m_resampling) delete [] m_ico_Y;
-	if (m_resampling) delete [] m_spharm[0].patch_cache;
+	if (m_resampling) delete [] m_spharm[m_pivot_cache].patch_cache;
 }
 
 void HSD::run(void)
@@ -537,12 +541,27 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 
 	if (m_resampling)
 	{
+		m_pivot_cache = -1;
 		int nFace = m_ico_mesh->nFace();
-		initLocalPatch(0);
-		for (int subj = 1; subj < m_nSubj; subj++)
+		for (int subj = 0; subj < m_nSubj; subj++)
 		{
-			m_spharm[subj].patch_cache = m_spharm[0].patch_cache;
-			m_spharm[subj].patch_checked = new bool[nFace];
+			if ((m_pairwise && !m_spharm[subj].fixed) || !m_pairwise)
+			{
+				if (m_pivot_cache == -1)
+				{
+					initLocalPatch(subj);
+					m_pivot_cache = subj;
+				}
+				else
+				{
+					m_spharm[subj].patch_cache = m_spharm[m_pivot_cache].patch_cache;
+					m_spharm[subj].patch_checked = new bool[nFace];
+				}
+			}
+			else if (m_pairwise && m_spharm[subj].fixed)
+			{
+				initLocalPatch(subj);
+			}
 			memset(m_spharm[subj].patch_checked, 0, nFace * sizeof(bool));
 		}
 	}
@@ -1365,7 +1384,8 @@ void HSD::updateProperties(int subj_id)
 					fid = (coeff[0] >= err && coeff[1] >= err && coeff[2] >= err) ? flist[j]: -1;
 				}
 				for (int j = 0; j < flist.size(); j++)
-					m_spharm[subj].patch_checked[flist[j]] = false;
+					if (flist[j] != -1)
+						m_spharm[subj].patch_checked[flist[j]] = false;
 			}
 			if (fid == -1)	// if no closest face is found
 			{
