@@ -2,7 +2,7 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: June 2020
+*	Update: July 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -2624,7 +2624,6 @@ void HSD::guessInitCoeff(void)
 		int n = (m_degree + 1) * (m_degree + 1);
 		int nLandmark = m_spharm[0].landmark.size();
 		double *coeff = m_spharm[subj].coeff;
-		double *coeff_prev_step = m_spharm[subj].coeff_prev_step;
 		double mincost = FLT_MAX;
 
 		bool skip = false;
@@ -2692,15 +2691,15 @@ void HSD::guessInitCoeff(void)
 						float v1[3];
 						Coordinate::rotation(A.fv(), -angle, rot1);
 						Coordinate::rotation(Q.fv(), (float)-delta[0], rot2);
-						rot[0] = rot1[0] * rot2[0] + rot1[1] * rot2[3] + rot1[2] * rot2[6];
-						rot[1] = rot1[0] * rot2[1] + rot1[1] * rot2[4] + rot1[2] * rot2[7];
-						rot[2] = rot1[0] * rot2[2] + rot1[1] * rot2[5] + rot1[2] * rot2[8];
-						rot[3] = rot1[3] * rot2[0] + rot1[4] * rot2[3] + rot1[5] * rot2[6];
-						rot[4] = rot1[3] * rot2[1] + rot1[4] * rot2[4] + rot1[5] * rot2[7];
-						rot[5] = rot1[3] * rot2[2] + rot1[4] * rot2[5] + rot1[5] * rot2[8];
-						rot[6] = rot1[6] * rot2[0] + rot1[7] * rot2[3] + rot1[8] * rot2[6];
-						rot[7] = rot1[6] * rot2[1] + rot1[7] * rot2[4] + rot1[8] * rot2[7];
-						rot[8] = rot1[6] * rot2[2] + rot1[7] * rot2[5] + rot1[8] * rot2[8];
+						rot[0] = rot2[0] * rot1[0] + rot2[1] * rot1[3] + rot2[2] * rot1[6];
+						rot[1] = rot2[0] * rot1[1] + rot2[1] * rot1[4] + rot2[2] * rot1[7];
+						rot[2] = rot2[0] * rot1[2] + rot2[1] * rot1[5] + rot2[2] * rot1[8];
+						rot[3] = rot2[3] * rot1[0] + rot2[4] * rot1[3] + rot2[5] * rot1[6];
+						rot[4] = rot2[3] * rot1[1] + rot2[4] * rot1[4] + rot2[5] * rot1[7];
+						rot[5] = rot2[3] * rot1[2] + rot2[4] * rot1[5] + rot2[5] * rot1[8];
+						rot[6] = rot2[6] * rot1[0] + rot2[7] * rot1[3] + rot2[8] * rot1[6];
+						rot[7] = rot2[6] * rot1[1] + rot2[7] * rot1[4] + rot2[8] * rot1[7];
+						rot[8] = rot2[6] * rot1[2] + rot2[7] * rot1[5] + rot2[8] * rot1[8];
 						for (int i = 0; i < m_nQuerySamples; i++)
 						{
 							const float *v0 = &m_propertySamples[i * 3];
