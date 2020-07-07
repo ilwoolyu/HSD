@@ -283,7 +283,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		m_ico_mesh = new Mesh();
 		if (ico_mesh == NULL)
 		{
-			icosahedron(m_icosahedron, m_ico_mesh);
+			icosahedron(m_icosahedron, m_propertySamples, m_ico_mesh);
 			switch (m_icosahedron)
 			{
 				case 3: m_nSamples = 642; break;
@@ -2613,7 +2613,63 @@ void HSD::updateGradientDisplacement(int deg_beg, int deg_end, int subj_id)
 
 void HSD::guessInitCoeff(void)
 {
-	m_nQuerySamples = min(10242, m_nSamples);
+	int nQuerySamples = min(10242, m_nSamples);
+	int *cand;
+	double *mean;
+	Mesh *ico_mesh;
+	AABB_Sphere *tree;
+	AABB_Sphere *tree_ico;
+	vector<float> propertySamples;
+	if (nQuerySamples > 0)
+	{
+		ico_mesh = new Mesh();
+		icosahedron(min(5, m_icosahedron), propertySamples, ico_mesh);
+		float rot[9];
+		float axis[3] = {-propertySamples[1], propertySamples[0], 0};
+		Coordinate::rotation(axis, -acos(propertySamples[2]), rot);
+		for (int i = 0; i < nQuerySamples; i++)
+		{
+			float rv[3];
+			Coordinate::rotPoint(&propertySamples[i * 3], rot, rv);
+			Vector V(rv);
+			const float *p = V.unit().fv();
+			propertySamples[i * 3 + 0] = p[0];
+			propertySamples[i * 3 + 1] = p[1];
+			propertySamples[i * 3 + 2] = p[2];
+			Vertex *v = (Vertex *)ico_mesh->vertex(i);
+			v->setVertex(p);
+		}
+		tree = new AABB_Sphere(ico_mesh);
+		cand = new int[nQuerySamples];
+		axis[0] = 0; axis[1] = 0; axis[2] = 1;
+		Coordinate::rotation(axis, -PI * 72.0 / 180.0, rot);
+		for (int i = 0; i < nQuerySamples; i++)
+		{
+			const float *v0 = &propertySamples[i * 3];
+			float v1[3];
+			Coordinate::rotPoint(v0, rot, v1);
+			float bary[3];
+			int fid = tree->closestFace(v1, bary);
+			if (bary[0] > bary[1] && bary[0] > bary[2])
+				cand[i] = ico_mesh->face(fid)->list()[0];
+			else if (bary[1] > bary[2] && bary[1] > bary[0])
+				cand[i] = ico_mesh->face(fid)->list()[1];
+			else
+				cand[i] = ico_mesh->face(fid)->list()[2];
+		}
+		tree_ico = new AABB_Sphere(m_ico_mesh);
+		mean = new double[nQuerySamples * (m_nProperties + m_nSurfaceProperties)];
+		for (int i = 0; i < nQuerySamples; i++)
+		{
+			float bary[3];
+			int fid = tree_ico->closestFace(&propertySamples[i * 3], bary);
+			for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+			{
+				mean[nQuerySamples * k + i] = propertyInterpolation(&m_mean[m_nSamples * k], fid, bary, m_ico_mesh);
+			}
+		}
+		delete tree_ico;
+	}
 
 	#pragma omp parallel for
 	for (int subj = 0; subj < m_nSubj; subj++)
@@ -2622,116 +2678,138 @@ void HSD::guessInitCoeff(void)
 
 		// spharm basis
 		int n = (m_degree + 1) * (m_degree + 1);
-		int nLandmark = m_spharm[0].landmark.size();
 		double *coeff = m_spharm[subj].coeff;
-		double mincost = FLT_MAX;
 
 		bool skip = false;
 		for (int i = 0; i < n * 3 && !skip; i++)
 			skip = (coeff[i] != 0);
 		if (skip) continue;
 
+		double mincost = FLT_MAX;
+		int nLandmark = m_spharm[0].landmark.size();
+		float *feature0 = new float[nQuerySamples * (m_nProperties + m_nSurfaceProperties)];
+		float *feature = new float[nQuerySamples * (m_nProperties + m_nSurfaceProperties)];
+		int nVertex = m_spharm[subj].sphere->nVertex();
+
+		for (int i = 0; i < nQuerySamples; i++)
+		{
+			float bary[3];
+			int fid = m_spharm[subj].tree->closestFace(&propertySamples[i * 3], bary);
+			for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+				feature0[nQuerySamples * k + i] = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, bary, m_spharm[subj].sphere);
+		}
+
 		// cart coordinate
 		float axis0[3], axis1[3];
 		Coordinate::sph2cart(m_spharm[subj].pole[0], m_spharm[subj].pole[1], axis0);
 		Vector P = axis0;
 
+		double delta[3];
+		float *feature_res = new float[nQuerySamples * (m_nProperties + m_nSurfaceProperties)];
 		for (double c1 = 0; c1 <= PI / 4; c1 += PI / 16)
 		{
-			for (double c2 = 0; c2 < 2 * PI; c2 += PI / 8)
+			for (double c2 = 0; c2 < 2 * PI; c2 += PI / 16)
 			{
 				if (c1 == 0 && c2 > 0) continue;
-				for (double c3 = -PI / 8; c3 <= PI / 8; c3 += PI / 16)
+				delta[1] = c1 * cos(c2);
+				delta[2] = c1 * sin(c2);
+
+				// exponential map (linear)
+				const float *axis = (P + Vector(m_spharm[subj].tan1) * delta[1] + Vector(m_spharm[subj].tan2) * delta[2]).unit().fv();
+				axis1[0] = axis[0]; axis1[1] = axis[1]; axis1[2] = axis[2];
+
+				// standard pole
+				Vector Q = axis1;
+				float angle = (float)c1;
+				Vector A = P.cross(Q); A.unit();
+
+				float rot[9];
+				Coordinate::rotation(A.fv(), -angle, rot);
+
+				for (int i = 0; i < nQuerySamples; i++)
 				{
-					double delta[3];
-					delta[0] = c3;
-					delta[1] = c1 * cos(c2);
-					delta[2] = c1 * sin(c2);
+					const float *v0 = &propertySamples[i * 3];
+					float v1[3];
+					Coordinate::rotPoint(v0, rot, v1);
+					float bary[3];
+					//int fid = m_spharm[subj].tree->closestFace(v1, bary);
+					int fid = tree->closestFace(v1, bary);
+					for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+						//feature[nQuerySamples * k + i] = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, bary, m_spharm[subj].sphere);
+						feature[nQuerySamples * k + i] = propertyInterpolation(&feature0[nQuerySamples * k], fid, bary, ico_mesh);
+				}
 
-					// exponential map (linear)
-					const float *axis = (P + Vector(m_spharm[subj].tan1) * delta[1] + Vector(m_spharm[subj].tan2) * delta[2]).unit().fv();
-					axis1[0] = axis[0]; axis1[1] = axis[1]; axis1[2] = axis[2];
-
-					// standard pole
-					Vector Q = axis1;
-					float angle = (float)c1;
-					Vector A = P.cross(Q); A.unit();
-
-					/*float rv[3];
-					float rot[9];
-
-					for (int i = 0; i < m_spharm[subj].vertex.size(); i++)
+				int intv = 6;
+				for (int w = 0; w < intv; w++)
+				{
+					for (int c3 = 0; c3 < 5; c3++)
 					{
-						Vertex *v = (Vertex *)m_spharm[subj].sphere->vertex(i);
-						float v1[3];
-						const float *v0 = m_spharm[subj].vertex[i]->p;
-						Coordinate::rotation(A.fv(), angle, rot);
-						Coordinate::rotPoint(v0, rot, rv);
-
-						// rotation
-						Coordinate::rotation(Q.fv(), (float)delta[0], rot);
-						Coordinate::rotPoint(rv, rot, v1);
-
-						Vector V(v1); V.unit();
-						v->setVertex(V.fv());
-					}
-					m_updated[subj] = false;
-
-					double cost = trace(subj);*/
-
-					double cost = 0;
-					if (nLandmark > m_spharm[subj].landmark.size())
-					{
-						updateLandmark(subj);
-						cost += varLandmarks(subj);
-					}
-					if (m_nQuerySamples > 0)
-					{
-						float rot[9], rot1[9], rot2[9];
-						float v1[3];
-						Coordinate::rotation(A.fv(), -angle, rot1);
-						Coordinate::rotation(Q.fv(), (float)-delta[0], rot2);
-						rot[0] = rot2[0] * rot1[0] + rot2[1] * rot1[3] + rot2[2] * rot1[6];
-						rot[1] = rot2[0] * rot1[1] + rot2[1] * rot1[4] + rot2[2] * rot1[7];
-						rot[2] = rot2[0] * rot1[2] + rot2[1] * rot1[5] + rot2[2] * rot1[8];
-						rot[3] = rot2[3] * rot1[0] + rot2[4] * rot1[3] + rot2[5] * rot1[6];
-						rot[4] = rot2[3] * rot1[1] + rot2[4] * rot1[4] + rot2[5] * rot1[7];
-						rot[5] = rot2[3] * rot1[2] + rot2[4] * rot1[5] + rot2[5] * rot1[8];
-						rot[6] = rot2[6] * rot1[0] + rot2[7] * rot1[3] + rot2[8] * rot1[6];
-						rot[7] = rot2[6] * rot1[1] + rot2[7] * rot1[4] + rot2[8] * rot1[7];
-						rot[8] = rot2[6] * rot1[2] + rot2[7] * rot1[5] + rot2[8] * rot1[8];
-						for (int i = 0; i < m_nQuerySamples; i++)
+						delta[0] = PI * 72.0 / 180.0 * c3 + PI * 72.0 / 180.0 * (double)w / (double)intv;
+						double cost = 0;
+						if (nLandmark > m_spharm[subj].landmark.size())
 						{
-							const float *v0 = &m_propertySamples[i * 3];
-							Coordinate::rotPoint(v0, rot, v1);
-
-							float bary[3];
-							int fid = m_spharm[subj].tree->closestFace(v1, bary);
-							int nVertex = m_spharm[subj].sphere->nVertex();
-							for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+							updateLandmark(subj);
+							cost += varLandmarks(subj);
+						}
+						if (nQuerySamples > 0)
+						{
+							if (c3 == 0)
 							{
-								double p = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, bary, m_spharm[subj].sphere);
-								double m = m_mean[m_nSamples * k + i];
-								double pm = (p - m);
-								cost += pm * pm / ((m_nProperties + m_nSurfaceProperties) * m_nSamples);
+								Coordinate::rotation(P.fv(), (float)-delta[0], rot);
+							}
+							for (int i = 0; i < nQuerySamples; i++)
+							{
+								int id = i;
+								if (c3 == 0)
+								{
+									float v1[3];
+									const float *v0 = &propertySamples[i * 3];
+									Coordinate::rotPoint(v0, rot, v1);
+									float bary[3];
+									int fid = tree->closestFace(v1, bary);
+									for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+										feature_res[nQuerySamples * k + i] = propertyInterpolation(&feature[nQuerySamples * k], fid, bary, ico_mesh);
+								}
+								else
+								{
+									for (int j = 0; j < c3; j++)
+										id = cand[id];
+								}
+								for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+								{
+									float p = feature_res[nQuerySamples * k + id];
+									double m = mean[nQuerySamples * k + i];
+									double pm = (p - m);
+									cost += pm * pm / ((m_nProperties + m_nSurfaceProperties) * nQuerySamples);
+								}
 							}
 						}
-					}
 
-					if (cost < mincost)
-					{
-						coeff[0] = delta[0] / m_spharm[subj].Y[0];
-						coeff[n] = delta[1] / m_spharm[subj].Y[0];
-						coeff[2 * n] = delta[2] / m_spharm[subj].Y[0];
-						mincost = cost;
-						/*cout << mincost << ": ";
-						cout << c1 << " " << c2 << " " << c3 << endl;*/
+						if (cost < mincost)
+						{
+							coeff[0] = delta[0] / m_spharm[subj].Y[0];
+							coeff[n] = delta[1] / m_spharm[subj].Y[0];
+							coeff[2 * n] = delta[2] / m_spharm[subj].Y[0];
+							mincost = cost;
+							// cout << mincost << ": ";
+							// cout << c1 << " " << c2 << " " << c3 << endl;
+						}
 					}
 				}
 			}
 		}
+		delete [] feature_res;
+		delete [] feature;
+		delete [] feature0;
 	}
-	m_nQuerySamples = m_nSamples;
+	if (nQuerySamples > 0)
+	{
+		delete [] cand;
+		delete [] mean;
+		delete tree;
+		delete ico_mesh;
+	}
+
 	#pragma omp parallel for
 	for (int subj = 0; subj < m_nSubj; subj++) updateDeformation(subj, true);
 	memset(m_updated, 0, sizeof(bool) * m_nSubj);
@@ -2783,7 +2861,7 @@ void HSD::optimization(void)
 	}
 }
 
-int HSD::icosahedron(int degree, Mesh *mesh)
+int HSD::icosahedron(int degree, vector<float> &propertySamples, Mesh *mesh)
 {
 	vector<vert **> triangles;
 	vector<vert *> vertices;
@@ -2911,9 +2989,9 @@ int HSD::icosahedron(int degree, Mesh *mesh)
 		p[0] = vertices[i]->v[0];
 		p[1] = vertices[i]->v[1];
 		p[2] = vertices[i]->v[2];
-		m_propertySamples.push_back(p[0]);
-		m_propertySamples.push_back(p[1]);
-		m_propertySamples.push_back(p[2]);
+		propertySamples.push_back(p[0]);
+		propertySamples.push_back(p[1]);
+		propertySamples.push_back(p[2]);
 	}
 	
 	float *vertex = new float[vertices.size() * 3];
@@ -2942,10 +3020,10 @@ int HSD::icosahedron(int degree, Mesh *mesh)
 	delete [] vertex;
 	delete [] face;
 	
-	return m_propertySamples.size() / 3;
+	return propertySamples.size() / 3;
 }
 
-int HSD::sphericalCoord(int degree)
+int HSD::sphericalCoord(int degree, vector<float> &propertySamples)
 {
 	// subdivision
 	float intv = PI / degree;
@@ -2955,13 +3033,13 @@ int HSD::sphericalCoord(int degree)
 		{
 			float p[3];
 			Coordinate::sph2cart(PI - 2 * intv * i, PI / 2 - intv * j, p);
-			m_propertySamples.push_back(p[0]);
-			m_propertySamples.push_back(p[1]);
-			m_propertySamples.push_back(p[2]);
+			propertySamples.push_back(p[0]);
+			propertySamples.push_back(p[1]);
+			propertySamples.push_back(p[2]);
 		}
 	}
 
-	return m_propertySamples.size() / 3;
+	return propertySamples.size() / 3;
 }
 
 void HSD::saveCoeff(const char *filename, int id)

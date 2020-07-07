@@ -2,7 +2,7 @@
 *	HSD.h
 *
 *	Release: Sep 2016
-*	Update: June 2020
+*	Update: July 2020
 *
 *	University of North Carolina at Chapel Hill
 *	Department of Computer Science
@@ -49,8 +49,8 @@ private:
 	string initArea(int subj);
 	void initPairwise(const char *tmpVariance);
 	void guessInitCoeff(void);
-	int icosahedron(int degree, Mesh *mesh);
-	int sphericalCoord(int degree);
+	int icosahedron(int degree, vector<float> &propertySamples, Mesh *mesh);
+	int sphericalCoord(int degree, vector<float> &propertySamples);
 
 	void optimization(void);
 	void updateGradient(int deg_beg, int deg_end, double lambda, int subj = -1);
