@@ -735,7 +735,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 	}
 	m_guess = guess;
 
-	// inital coefficients for the previous step
+	// initial coefficients for the previous step
 	memcpy(m_coeff_prev_step, m_coeff, sizeof(double) * m_csize * 3);
 	
 	cout << "Initialization done!" << endl;
@@ -1358,7 +1358,8 @@ void HSD::updateProperties(int subj_id)
 				{
 					for (int id = init; id < len; id++)
 						for (int j = 0; j < 3; j++)
-							flist.push_back(m_spharm[subj].patch_cache[flist[id] * 3 + j]);
+							if (m_spharm[subj].patch_cache[flist[id] * 3 + j] != -1)
+								flist.push_back(m_spharm[subj].patch_cache[flist[id] * 3 + j]);
 					init = len;
 					len = flist.size();
 				}
@@ -1837,7 +1838,7 @@ bool HSD::testTriangleFlip(Mesh *mesh, const bool *flip, float neg_area_threshol
 
 		if ((V * U < 0 && !flip[i]) || (V * U > 0 && flip[i]))
 			area += U.norm();
-		if (area > 	neg_area_threshold) return true;
+		if (area > neg_area_threshold) return true;
 	}
 	return false;
 }
