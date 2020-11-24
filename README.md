@@ -14,7 +14,9 @@ You can download and compile the source code using <a href="https://cmake.org/">
 $ docker pull ilwoolyu/cmorph:<version>
 ```
 ## Usage
-:bulb: **Please see <a href="https://github.com/ilwoolyu/HSD/tree/master/script">quick batch processing</a> for group-wise registration on FreeSurfer outputs.**
+:bulb: **Please see <a href="https://github.com/ilwoolyu/HSD/tree/master/script">quick batch processing</a> for group-wise registration using FreeSurfer outputs.**
+
+:bulb: **Please see <a href="https://github.com/ilwoolyu/SphericalLabeling">spherical data augmentation</a> for spherical convolutional neural networks using FreeSurfer outputs.**
 
 ### Input
 * surface file (.vtk): triangular sphere mesh
