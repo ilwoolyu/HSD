@@ -29,6 +29,7 @@ bool realtimeCoeff = false;
 bool noguess = false;
 bool resampling = false;
 int nThreads = 0;
+int guessRes = 3;
 std::vector<int> listFixedSubj;
 int nCThreads = 0;
 
@@ -67,6 +68,7 @@ void PARSE_ARGS(int argc, char **argv)
 	app.add_option("--maxIter", maxIter, "Specify the maxmum number of iterations at the final phase", true)->check(CLI::NonNegativeNumber)->group("Optimization");
 	//app.add_option("--locationWeight", weightLoc, "Specify a weighting factor of location information", true);
 	app.add_option("--icomesh", icoMesh, "Specify a pre-defined icosahedral mesh, which overrides --icosaherdon")->check(CLI::ExistingFile)->group("Optimization");
+	app.add_option("--gres", guessRes, "Specify a search resolution for initial guess", true)->check(CLI::PositiveNumber)->group("Optimization");
 	app.add_flag("--noguess", noguess, "Do not execute an initial guess for rigid alignment")->group("Optimization");
 	app.add_flag("--resample", resampling, "Resample geometric properties using the current icosahedral level")->group("Optimization");
 	app.add_flag("--writecoeff", realtimeCoeff, "Write coefficient whenever the energy is minimized, which may lead to significant IO overhead")->group("Optimization");

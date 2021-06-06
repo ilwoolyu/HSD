@@ -2,12 +2,12 @@
  *	main.cpp
  *
  *	Release: Sep 2016
- *	Update: Dec 2019
+ *	Update: June 2021
  *
- *	University of North Carolina at Chapel Hill
- *	Department of Computer Science
+ *	Ulsan National Institute of Science and Technology
+ *	Department of Computer Science and Engineering
  *
- *	Ilwoo Lyu, ilwoolyu@cs.unc.edu
+ *	Ilwoo Lyu, ilwoolyu@unist.ac.kr
  *************************************************/
 
 #include <cstdlib>
@@ -198,7 +198,7 @@ int main(int argc, char **argv)
     openblas_set_num_threads(nThreads);
 #endif
 
-    HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess, icomesh, nCThreads, resampling);
+    HSD hsd(sphere, nSubj, property, nProperties / nSubj, output, outputcoeff, weight, degree, landmark, weightMap, weightLoc, idprior, coeff, surf, maxIter, fixedSubj, icosa, realtimeCoeff, prior, !noguess, guessRes, icomesh, nCThreads, resampling);
     hsd.run();
 
     // delete memory allocation

@@ -4,7 +4,7 @@ project(HSD)
 
 set(HSD_VERSION_MAJOR 1)
 set(HSD_VERSION_MINOR 3)
-set(HSD_VERSION_PATCH 8)
+set(HSD_VERSION_PATCH 9)
 set(HSD_VERSION
 ${HSD_VERSION_MAJOR}.${HSD_VERSION_MINOR}.${HSD_VERSION_PATCH})
 
@@ -30,7 +30,7 @@ if (CUDA_FOUND)
 endif()
 
 if (ENABLE_CUDA_BLAS)
-	set(CUDA_NVCC_FLAGS	${CUDA_NVCC_FLAGS}; -O3 -gencode arch=compute_61,code=sm_61)
+	set(CUDA_NVCC_FLAGS	${CUDA_NVCC_FLAGS}; -O3 -gencode=arch=compute_52,code=sm_52 -gencode=arch=compute_60,code=sm_60 -gencode=arch=compute_61,code=sm_61 -gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_86,code=compute_86)
 else()
 	find_package(BLAS REQUIRED)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lopenblas")

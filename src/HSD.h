@@ -2,12 +2,12 @@
 *	HSD.h
 *
 *	Release: Sep 2016
-*	Update: July 2020
+*	Update: June 2021
 *
-*	University of North Carolina at Chapel Hill
-*	Department of Computer Science
+*	Ulsan National Institute of Science and Technology
+*	Department of Computer Science and Engineering
 *	
-*	Ilwoo Lyu, ilwoolyu@cs.unc.edu
+*	Ilwoo Lyu, ilwoolyu@unist.ac.kr
 *************************************************/
 
 #pragma once
@@ -29,7 +29,7 @@ class HSD
 {
 public:
 	HSD(void);
-	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true, const char *ico_mesh = NULL, int nCThreads = 1, bool resampling = false);
+	HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg = 5, const char **landmark = NULL, float weightMap = 0.1, float weightLoc = 0, float idprior = 200, const char **coeff = NULL, const char **surf = NULL, int maxIter = 50, const bool *fixedSubj = NULL, int icosahedron = 7, bool realtimeCoeff = false, const char *tmpVariance = NULL, bool guess = true, int guessRes = 3, const char *ico_mesh = NULL, int nCThreads = 1, bool resampling = false);
 	~HSD(void);
 	void run(void);
 	void saveCoeff(const char *filename, int id);
@@ -156,6 +156,7 @@ private:
 	int m_nCThreads;
 	int m_patch_range;
 	int m_pivot_cache;
+	int m_guess_res;
 	
 	double *m_coeff;
 	double *m_coeff_prev_step;	// previous coefficients

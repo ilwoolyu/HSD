@@ -1,4 +1,4 @@
-set(CLI11_VER "1.9.0" CACHE STRING "CLI11 Version: see https://github.com/CLIUtils/CLI11/releases")
+set(CLI11_VER "1.9.1" CACHE STRING "CLI11 Version: see https://github.com/CLIUtils/CLI11/releases")
 mark_as_advanced(CLI11_VER)
 set(CLI11_DIRS ${CMAKE_BINARY_DIR}/CMakeFiles/CLI11)
 file(DOWNLOAD https://github.com/CLIUtils/CLI11/releases/download/v${CLI11_VER}/CLI11.hpp ${CLI11_DIRS}/CLI11.hpp)

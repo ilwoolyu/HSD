@@ -2,12 +2,12 @@
 *	HSD.cpp
 *
 *	Release: Sep 2016
-*	Update: July 2020
+*	Update: June 2021
 *
-*	University of North Carolina at Chapel Hill
-*	Department of Computer Science
+*	Ulsan National Institute of Science and Technology
+*	Department of Computer Science and Engineering
 *	
-*	Ilwoo Lyu, ilwoolyu@cs.unc.edu
+*	Ilwoo Lyu, ilwoolyu@unist.ac.kr
 *************************************************/
 
 #include <cstring>
@@ -42,9 +42,10 @@ HSD::HSD(void)
 	m_resampling = false;
 	m_multi_res = true;
 	m_patch_range = 2;
+	m_guess_res = 3;
 }
 
-HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess, const char *ico_mesh, int nCThreads, bool resampling)
+HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties, const char **output, const char **outputcoeff, const float *weight, int deg, const char **landmark, float weightMap, float weightLoc, float idprior, const char **coeff, const char **surf, int maxIter, const bool *fixedSubj, int icosahedron, bool realtimeCoeff, const char *tmpVariance, bool guess, int guessRes, const char *ico_mesh, int nCThreads, bool resampling)
 {
 	m_maxIter = maxIter;
 	m_nSubj = nSubj;
@@ -68,6 +69,7 @@ HSD::HSD(const char **sphere, int nSubj, const char **property, int nProperties,
 	m_resampling = resampling;
 	m_multi_res = true;
 	m_patch_range = 2;
+	m_guess_res = guessRes;
 	init(sphere, property, weight, landmark, weightLoc, coeff, surf, icosahedron, fixedSubj, tmpVariance, ico_mesh, nCThreads);
 }
 
@@ -1273,7 +1275,7 @@ bool HSD::updateCoordinate(const float *v0, float *v1, const double *Y, const do
 		memcpy(v1, rv, sizeof(float) * 3);
 		if (delta[1] == 0 && delta[2] == 0)
 			return true;
-		else 
+		else
 			return false;
 	}
 	
@@ -2707,97 +2709,120 @@ void HSD::guessInitCoeff(void)
 
 		double delta[3];
 		float *feature_res = new float[nQuerySamples * (m_nProperties + m_nSurfaceProperties)];
-		for (double c1 = 0; c1 <= PI / 4; c1 += PI / 16)
+		double range_c1[3] = {0, PI / 2, PI / 8};
+		double range_c2[3] = {0, 2 * PI, PI / 8};
+		int intv = 3;
+
+		double opt_c1 = 0, opt_c2 = 0;
+		for (int res = 0; res < m_guess_res; res++)
 		{
-			for (double c2 = 0; c2 < 2 * PI; c2 += PI / 16)
+			for (double c1 = range_c1[0]; c1 <= range_c1[1]; c1 += range_c1[2])
 			{
-				if (c1 == 0 && c2 > 0) continue;
-				delta[1] = c1 * cos(c2);
-				delta[2] = c1 * sin(c2);
-
-				// exponential map (linear)
-				const float *axis = (P + Vector(m_spharm[subj].tan1) * delta[1] + Vector(m_spharm[subj].tan2) * delta[2]).unit().fv();
-				axis1[0] = axis[0]; axis1[1] = axis[1]; axis1[2] = axis[2];
-
-				// standard pole
-				Vector Q = axis1;
-				float angle = (float)c1;
-				Vector A = P.cross(Q); A.unit();
-
-				float rot[9];
-				Coordinate::rotation(A.fv(), -angle, rot);
-
-				for (int i = 0; i < nQuerySamples; i++)
+				for (double c2 = range_c2[0]; c2 < range_c2[1]; c2 += range_c2[2])
 				{
-					const float *v0 = &propertySamples[i * 3];
-					float v1[3];
-					Coordinate::rotPoint(v0, rot, v1);
-					float bary[3];
-					//int fid = m_spharm[subj].tree->closestFace(v1, bary);
-					int fid = tree->closestFace(v1, bary);
-					for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
-						//feature[nQuerySamples * k + i] = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, bary, m_spharm[subj].sphere);
-						feature[nQuerySamples * k + i] = propertyInterpolation(&feature0[nQuerySamples * k], fid, bary, ico_mesh);
-				}
+					if (c1 == 0 && c2 > 0) continue;
+					delta[1] = c1 * cos(c2);
+					delta[2] = c1 * sin(c2);
 
-				int intv = 6;
-				for (int w = 0; w < intv; w++)
-				{
-					for (int c3 = 0; c3 < 5; c3++)
+					// exponential map (linear)
+					const float *axis = (P + Vector(m_spharm[subj].tan1) * delta[1] + Vector(m_spharm[subj].tan2) * delta[2]).unit().fv();
+					axis1[0] = axis[0]; axis1[1] = axis[1]; axis1[2] = axis[2];
+
+					// standard pole
+					Vector Q = axis1;
+					float angle = (float)c1;
+					Vector A = P.cross(Q); A.unit();
+
+					float rot[9];
+					Coordinate::rotation(A.fv(), -angle, rot);
+
+					for (int i = 0; i < nQuerySamples; i++)
 					{
-						delta[0] = PI * 72.0 / 180.0 * c3 + PI * 72.0 / 180.0 * (double)w / (double)intv;
-						double cost = 0;
-						if (nLandmark > m_spharm[subj].landmark.size())
+						const float *v0 = &propertySamples[i * 3];
+						float v1[3];
+						Coordinate::rotPoint(v0, rot, v1);
+						float bary[3];
+						//int fid = m_spharm[subj].tree->closestFace(v1, bary);
+						int fid = tree->closestFace(v1, bary);
+						for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+							//feature[nQuerySamples * k + i] = propertyInterpolation(&m_spharm[subj].property[nVertex * k], fid, bary, m_spharm[subj].sphere);
+							feature[nQuerySamples * k + i] = propertyInterpolation(&feature0[nQuerySamples * k], fid, bary, ico_mesh);
+					}
+
+					for (int w = 0; w < intv; w++)
+					{
+						for (int c3 = 0; c3 < 5; c3++)
 						{
-							updateLandmark(subj);
-							cost += varLandmarks(subj);
-						}
-						if (nQuerySamples > 0)
-						{
-							if (c3 == 0)
+							delta[0] = 2 * PI / 5 * c3 + 2 * PI / 5 * (double)w / (double)intv;
+							double cost = 0;
+							if (nLandmark > m_spharm[subj].landmark.size())
 							{
-								Coordinate::rotation(P.fv(), (float)-delta[0], rot);
+								updateLandmark(subj);
+								cost += varLandmarks(subj);
 							}
-							for (int i = 0; i < nQuerySamples; i++)
+							if (nQuerySamples > 0)
 							{
-								int id = i;
 								if (c3 == 0)
 								{
-									float v1[3];
-									const float *v0 = &propertySamples[i * 3];
-									Coordinate::rotPoint(v0, rot, v1);
-									float bary[3];
-									int fid = tree->closestFace(v1, bary);
+									Coordinate::rotation(P.fv(), (float)-delta[0], rot);
+								}
+								for (int i = 0; i < nQuerySamples; i++)
+								{
+									int id = i;
+									if (c3 == 0)
+									{
+										float v1[3];
+										const float *v0 = &propertySamples[i * 3];
+										Coordinate::rotPoint(v0, rot, v1);
+										float bary[3];
+										int fid = tree->closestFace(v1, bary);
+										for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
+											feature_res[nQuerySamples * k + i] = propertyInterpolation(&feature[nQuerySamples * k], fid, bary, ico_mesh);
+									}
+									else
+									{
+										for (int j = 0; j < c3; j++)
+											id = cand[id];
+									}
 									for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
-										feature_res[nQuerySamples * k + i] = propertyInterpolation(&feature[nQuerySamples * k], fid, bary, ico_mesh);
-								}
-								else
-								{
-									for (int j = 0; j < c3; j++)
-										id = cand[id];
-								}
-								for (int k = 0; k < m_nProperties + m_nSurfaceProperties; k++)
-								{
-									float p = feature_res[nQuerySamples * k + id];
-									double m = mean[nQuerySamples * k + i];
-									double pm = (p - m);
-									cost += pm * pm / ((m_nProperties + m_nSurfaceProperties) * nQuerySamples);
+									{
+										float p = feature_res[nQuerySamples * k + id];
+										double m = mean[nQuerySamples * k + i];
+										double pm = (p - m);
+										cost += pm * pm / ((m_nProperties + m_nSurfaceProperties) * nQuerySamples);
+									}
 								}
 							}
-						}
 
-						if (cost < mincost)
-						{
-							coeff[0] = delta[0] / m_spharm[subj].Y[0];
-							coeff[n] = delta[1] / m_spharm[subj].Y[0];
-							coeff[2 * n] = delta[2] / m_spharm[subj].Y[0];
-							mincost = cost;
-							// cout << mincost << ": ";
-							// cout << c1 << " " << c2 << " " << c3 << endl;
+							if (cost < mincost)
+							{
+								coeff[0] = delta[0] / m_spharm[subj].Y[0];
+								coeff[n] = delta[1] / m_spharm[subj].Y[0];
+								coeff[2 * n] = delta[2] / m_spharm[subj].Y[0];
+								mincost = cost;
+								// cout << mincost << ": ";
+								// cout << c1 << " " << c2 << " " << c3 << endl;
+								opt_c1 = c1;
+								opt_c2 = c2;
+							}
 						}
 					}
 				}
 			}
+			range_c1[0] = opt_c1 - range_c1[2];
+			range_c1[1] = opt_c1 + range_c1[2];
+			range_c1[2] /= 2;
+			range_c1[0] += range_c1[2];
+			range_c1[1] -= range_c1[2];
+			range_c1[0] = (range_c1[0] < 0) ? range_c1[2]: range_c1[0];
+			if (opt_c1 != 0)
+			{
+				range_c2[0] = opt_c2 - range_c2[2];
+				range_c2[1] = opt_c2 + range_c2[2];
+			}
+			range_c2[2] /= 2;
+			if (opt_c1 != 0) range_c2[0] += range_c2[2];
+			intv *= 2;
 		}
 		delete [] feature_res;
 		delete [] feature;
