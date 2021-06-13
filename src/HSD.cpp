@@ -578,7 +578,7 @@ void HSD::init(const char **sphere, const char **property, const float *weight, 
 		cout << "Fatal error: allocating pinned host memory" << endl;
 		exit(1);
 	}
-	memcpy(m_propertySamples_pinned, (float *)&m_propertySamples[0], nSamples * 3 * sizeof(float));
+	memcpy(m_propertySamples_pinned, &m_propertySamples[0], nSamples * 3 * sizeof(float));
 #endif
 	m_nQuerySamples = nSamples;
 	
@@ -974,7 +974,7 @@ string HSD::initProperties(int subj, const char **property, int nLines, AABB_Sph
 			float coeff[3];
 			Vertex *v = (Vertex *)m_spharm[subj].sphere->vertex(j);
 			const float *v0 = v->fv();
-			int fid = tree->closestFace((float *)v0, coeff);
+			int fid = tree->closestFace(v0, coeff);
 			for (int i = 0; i < m_nProperties + m_nSurfaceProperties; i++)
 				m_spharm[subj].property[nVertex * i + j] = propertyInterpolation(&property_raw[nLines * i], fid, coeff, sphere);
 		}
@@ -1210,7 +1210,7 @@ void HSD::initPairwise(const char *tmpVariance)
 				Vector N = Vector(a->fv(), b->fv()).cross(Vector(b->fv(), c->fv())).unit();
 				Vector V_proj = Vector(&m_propertySamples[i * 3]) * ((Vector(a->fv()) * N) / (Vector(&m_propertySamples[i * 3]) * N));
 
-				Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff, 1e-5);
+				Coordinate::cart2bary(a->fv(), b->fv(), c->fv(), V_proj.fv(), coeff, 1e-5);
 
 				m_variance[m_nSamples * k + i] = propertyInterpolation(&var[nVertex * k], fid, coeff, m_spharm[tmp].sphere);
 			}
@@ -1382,7 +1382,7 @@ void HSD::updateProperties(int subj_id)
 					Vector V_proj = Vector(&m_propertySamples[i * 3]) * scale;
 
 					// bary centric
-					Coordinate::cart2bary((float *)a->fv(), (float *)b->fv(), (float *)c->fv(), (float *)V_proj.fv(), coeff);
+					Coordinate::cart2bary(a->fv(), b->fv(), c->fv(), V_proj.fv(), coeff);
 
 					fid = (coeff[0] >= err && coeff[1] >= err && coeff[2] >= err) ? flist[j]: -1;
 				}
@@ -2278,7 +2278,7 @@ void HSD::updateGradientProperties(int deg_beg, int deg_end, int subj_id)
 				Vector N = Vector(v1, v2).cross(Vector(v2, v3));
 				N.unit();
 				Vector Yproj = Vector(y) * ((Vector(v1) * N) / (Vector(y) * N));
-				Coordinate::cart2bary((float *)v1, (float *)v2, (float *)v3, (float *)Yproj.fv(), cY, 1e-5);
+				Coordinate::cart2bary(v1, v2, v3, Yproj.fv(), cY, 1e-5);
 				int id1 = m_spharm[subj].sphere->face(fid)->vertex(0)->id();
 				int id2 = m_spharm[subj].sphere->face(fid)->vertex(1)->id();
 				int id3 = m_spharm[subj].sphere->face(fid)->vertex(2)->id();

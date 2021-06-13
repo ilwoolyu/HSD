@@ -421,7 +421,7 @@ __device__ void cuCoordinate::sph2cart(double phi, double theta, double *v)
 	v[1] = coselev * sin(phi);
 }
 
-__device__ void cuCoordinate::cart2bary(float *a, float *b, float *c, float *p, float *coeff, float err)
+__device__ void cuCoordinate::cart2bary(const float *a, const float *b, const float *c, const float *p, float *coeff, float err)
 {
 	// test dataset for debug
 	/*float a[3] = {-0.6498,0.3743,0.6616};
@@ -494,7 +494,7 @@ __device__ void cuCoordinate::cart2bary(float *a, float *b, float *c, float *p, 
 	cuVector PP = A * coeff[0] + B * coeff[1] + C * coeff[2];
 	printf("recons: %f %f %f\n", PP.fv()[0],PP.fv()[1],PP.fv()[2]);*/
 }
-__device__ void cuCoordinate::cart2bary(double *a, double *b, double *c, double *p, double *coeff, double err)
+__device__ void cuCoordinate::cart2bary(const double *a, const double *b, const double *c, const double *p, double *coeff, double err)
 {
 	// a counter clockwise order
 	cuVectorD A(a), B(b), C(c), P(p);

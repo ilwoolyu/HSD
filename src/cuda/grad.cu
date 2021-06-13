@@ -55,7 +55,7 @@ __global__ void gradient_properties_kernel(const float *vertex, int nVertex, con
 		cuVector N = cuVector(v1, v2).cross(cuVector(v2, v3));
 		N.unit();
 		cuVector Yproj = cuVector(y) * ((cuVector(v1) * N) / (cuVector(y) * N));
-		coord.cart2bary((float *)v1, (float *)v2, (float *)v3, (float *)Yproj.fv(), cY, 1e-5);
+		coord.cart2bary(v1, v2, v3, Yproj.fv(), cY, 1e-5);
 
 		const double *Y1 = &Y[nCoeff * id1];
 		const double *Y2 = &Y[nCoeff * id2];

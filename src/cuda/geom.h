@@ -78,8 +78,8 @@ public:
 	__device__ void cart2sph(const float *v, float *phi, float *theta);
 	__device__ void sph2cart(float phi, float theta, float *v);
 	__device__ void sph2cart(double phi, double theta, double *v);
-	__device__ void cart2bary(float *a, float *b, float *c, float *p, float *coeff, float err = 0);
-	__device__ void cart2bary(double *a, double *b, double *c, double *p, double *coeff, double err = 0);
+	__device__ void cart2bary(const float *a, const float *b, const float *c, const float *p, float *coeff, float err = 0);
+	__device__ void cart2bary(const double *a, const double *b, const double *c, const double *p, double *coeff, double err = 0);
 	__device__ void rotPoint(const float *p0, const float *mat, float *p1);
 	__device__ void rotPoint(const double *p0, const double *mat, double *p1);
 	__device__ void rotPointInv(const float *p0, const float *mat, float *p1);
